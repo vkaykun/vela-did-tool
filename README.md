@@ -43,9 +43,16 @@ Secret Provision: When using stored keys (sign command or future retrieval), the
 
 ⚠️ Critical Security Considerations ⚠️
 
-Secret Management: The default mechanism relies on secrets passed via environment variables. This is INSECURE for production. Environment variables can be exposed through various means. Production deployments MUST integrate with secure secret management systems (e.g., HashiCorp Vault, Cloud KMS/Secret Manager, HSMs) and update the key retrieval logic accordingly.
+Secret Management & Access Scope:
 
-Naptha Node Trust: Secure key storage relies heavily on the Naptha Node's ability to isolate module environments and storage access. Access control within the StorageProvider implementation is assumed but not specified in core Naptha docs. Treat Nodes running this tool with stored keys as highly sensitive.
+Decryption Secret Provisioning: The recommended method to provide the runtime decryption secret (needed by this tool for stored agent keys, named via --secret-env) is using Naptha's deploy-secrets feature (SDK/Node v1.0.2+). This command stores the secret encrypted-at-rest on the target Naptha Node.
+
+Runtime Environment Access: This tool reads the decryption secret from os.environ at runtime. While deploy-secrets secures the secret at rest, be aware it exists decrypted in the module's process memory during execution.
+
+CRITICAL: Access Scope Uncertainty: Based on current documentation, it is unclear if secrets deployed via deploy-secrets are exposed node-wide via os.environ to all modules, or if Naptha enforces finer-grained, module-specific access. If access is node-wide, deploying multiple distinct agent decryption secrets to the same Node via deploy-secrets is insecure. This scope must be clarified with the Naptha team before deploying sensitive multi-agent scenarios on shared nodes using this mechanism.
+
+Production Best Practice: Despite deploy-secrets, for maximum security in production, consider integrating with external dedicated secret managers (Vault, KMS, HSMs) and modifying the tool's secret retrieval logic.
+
 
 Usage (Naptha Tool CLI)
 
@@ -116,12 +123,8 @@ poetry install --with dev
 poetry run pytest tests/
 ```
 
-Contributions are welcome. Please see CONTRIBUTING.md.
-
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-blue)](...) <!-- Placeholder: Link to releases or PyPI -->
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](...) <!-- Placeholder: Link to CI/CD -->
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](...)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](...) 
