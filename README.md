@@ -1,4 +1,4 @@
-# Vela DID Tool (tool:vela-did-tool)
+# Vela DID Tool (`tool:vela-did-tool`)
 
 **A standards-compliant DID (`did:key`) management and cryptographic signing tool packaged as a Naptha Module for the Vela Network.**
 
