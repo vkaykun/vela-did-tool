@@ -1,0 +1,59 @@
+[tool.poetry]
+name = "vela-did-tool"
+version = "0.1.0"
+description = "DID Key generation & signing for Vela using didkit & Naptha Secrets"
+authors = ["vkay"]
+readme = "README.md"
+exclude = [
+    "src/wasm/mock_didkit.py",
+    "tests/test_mock*.py"
+]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<=3.13"
+wasmtime = "^15.0.0"
+naptha-sdk = ">=1.0.2"
+# Additional dependencies that might be needed based on the guide
+requests = "^2.28.0"  # For any HTTP operations
+asyncio = "^3.4.3"    # For async operations
+logging = "^0.4.9.6"  # For logging
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.3.4"
+pytest-asyncio = "^0.20.3"
+pytest-mock = "^3.10.0"
+black = "^23.0.0"    # For code formatting
+isort = "^5.12.0"    # For import sorting
+mypy = "^1.0.0"      # For type checking
+
+[tool.poetry.scripts]
+vela_did_tool = "src.main:main"
+build_production = "scripts.build_for_production:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# Build configuration flags
+[tool.poetry.build]
+generate-setup-file = true
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

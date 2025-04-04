@@ -1,0 +1,74 @@
+name: Production Build Verification
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  verify-production-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+      
+      - name: Install dependencies
+        run: poetry install
+      
+      - name: Build DIDKit WASM (required for verification)
+        run: ./scripts/build_didkit_c_api.sh
+      
+      - name: Create production build
+        run: |
+          # Create a verified production build with no mock implementations
+          poetry run build_production --verify --clean
+          echo "✓ Production build verified - No mock implementations found"
+      
+      - name: Verify WASM operation in production mode
+        run: |
+          # Set production mode env var
+          export VELA_PRODUCTION_MODE=true
+          
+          # Run a self-test to verify actual WASM operation
+          SELF_TEST_RESULT=$(poetry run python -c "
+          import json
+          import sys
+          from src.main import main
+          import os
+          
+          os.environ['INPUT_OPERATION'] = 'self_test'
+          
+          try:
+              result = main()
+              result_json = json.loads(result)
+              if result_json.get('status') == 'success':
+                  print('Self-test successful')
+                  sys.exit(0)
+              else:
+                  print(f'Self-test failed: {result}')
+                  sys.exit(1)
+          except Exception as e:
+              print(f'Error during self-test: {str(e)}')
+              sys.exit(1)
+          ")
+          
+          echo "$SELF_TEST_RESULT"
+      
+      - name: Upload production artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: vela-did-tool-production
+          path: dist/
+          retention-days: 7 

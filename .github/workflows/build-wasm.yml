@@ -1,0 +1,125 @@
+name: Build DIDKit WASM
+
+on:
+  workflow_dispatch:  # Allow manual triggering
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/build_didkit_c_api.sh'
+      - '.github/workflows/build-wasm.yml'
+  pull_request:
+    paths:
+      - 'scripts/build_didkit_c_api.sh'
+      - '.github/workflows/build-wasm.yml'
+
+jobs:
+  build-didkit-wasm:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          override: true
+          
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+        
+      - name: Build DIDKit WASM
+        id: build-wasm
+        run: |
+          mkdir -p src/wasm
+          bash scripts/build_didkit_c_api.sh
+          echo "wasm_hash=$(cat src/wasm/didkit_wasm.sha256 | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "VELA_WASM_HASH=$(cat src/wasm/didkit_wasm.sha256 | awk '{print $1}')" >> $GITHUB_ENV
+        
+      - name: Verify WASM binary
+        run: |
+          ./scripts/verify_wasm_hash.sh
+          
+      - name: Upload WASM binary as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: didkit-wasm
+          path: |
+            src/wasm/didkit_compiled.wasm
+            src/wasm/didkit.wasm
+            src/wasm/didkit_wasm.sha256
+            src/wasm/build_info.txt
+          if-no-files-found: error
+          
+      - name: Create release if on main branch
+        if: github.ref == 'refs/heads/main'
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: didkit-wasm-v0.7.0-${{ github.run_number }}
+          name: DIDKit WASM Build v0.7.0 (Run ${{ github.run_number }})
+          body: |
+            DIDKit WASM binary built from v0.7.0
+            
+            SHA-256 Hash: ${{ steps.build-wasm.outputs.wasm_hash }}
+            
+            Build date: ${{ github.event.repository.updated_at }}
+            Runner: ${{ runner.os }}
+            
+            This is a reproducible build created by the CI pipeline.
+            
+            To use this hash in your deployment:
+            ```
+            export VELA_WASM_HASH=${{ steps.build-wasm.outputs.wasm_hash }}
+            ```
+          files: |
+            src/wasm/didkit_compiled.wasm
+            src/wasm/didkit_wasm.sha256
+            src/wasm/build_info.txt
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  run-self-test:
+    needs: build-didkit-wasm
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry install
+          
+      - name: Download WASM artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: didkit-wasm
+          path: ./src/wasm
+          
+      - name: Run self-test
+        run: |
+          export VELA_PRODUCTION_MODE=true
+          export VELA_WASM_HASH=$(cat ./src/wasm/didkit_wasm.sha256 | awk '{print $1}')
+          # Run a simple status check to validate the WASM file works
+          poetry run python -c "from src.main import main; print(main({'operation': 'status'}))" 
