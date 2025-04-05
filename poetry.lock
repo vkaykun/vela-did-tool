@@ -405,6 +405,20 @@ test = ["certifi (>=2024)", "cryptography-vectors (==44.0.2)", "pretend (>=0.7)"
 test-randomorder = ["pytest-randomly"]
 
 [[package]]
+name = "didkit"
+version = "0.2.1"
+description = "DIDKit python package"
+optional = false
+python-versions = ">=3.6"
+groups = ["main"]
+files = [
+    {file = "didkit-0.2.1-py3-none-macosx_10_10_x86_64.whl", hash = "sha256:5ad23d1a32580bc88205df23ba4066ce55d50de3b04649f25afcba4e9f731303"},
+    {file = "didkit-0.2.1-py3-none-manylinux_2_31_x86_64.whl", hash = "sha256:9310e98ceb0d40a47c0d7fb91e4a9ee18743decc7a7fd065471c975cf532f36d"},
+    {file = "didkit-0.2.1-py3-none-win_amd64.whl", hash = "sha256:ab42186e2bb469e4317607c9e2e0e1e764d6e86dae96b61c6a2411c60d8faeb4"},
+    {file = "didkit-0.2.1.tar.gz", hash = "sha256:29ffb9d9abe35576eb1e3c018c083f8369afbfb446bc4e8b7afb9d391cb6c853"},
+]
+
+[[package]]
 name = "ecdsa"
 version = "0.19.1"
 description = "ECDSA cryptographic signature library (pure python)"
@@ -723,21 +737,6 @@ files = [
 [package.dependencies]
 multiaddr = ">=0.0.7"
 requests = ">=2.11"
-
-[[package]]
-name = "isort"
-version = "5.13.2"
-description = "A Python utility / library to sort Python imports."
-optional = false
-python-versions = ">=3.8.0"
-groups = ["dev"]
-files = [
-    {file = "isort-5.13.2-py3-none-any.whl", hash = "sha256:8ca5e72a8d85860d5a3fa69b8745237f2939afe12dbf656afbcb47fe72d947a6"},
-    {file = "isort-5.13.2.tar.gz", hash = "sha256:48fdfcb9face5d58a4f6dde2e72a1fb8dcaf8ab26f95ab49fab84c2ddefb0109"},
-]
-
-[package.extras]
-colors = ["colorama (>=0.4.6)"]
 
 [[package]]
 name = "jinja2"
@@ -1432,43 +1431,6 @@ tomli = {version = ">=1", markers = "python_version < \"3.11\""}
 dev = ["argcomplete", "attrs (>=19.2)", "hypothesis (>=3.56)", "mock", "pygments (>=2.7.2)", "requests", "setuptools", "xmlschema"]
 
 [[package]]
-name = "pytest-asyncio"
-version = "0.20.3"
-description = "Pytest support for asyncio"
-optional = false
-python-versions = ">=3.7"
-groups = ["dev"]
-files = [
-    {file = "pytest-asyncio-0.20.3.tar.gz", hash = "sha256:83cbf01169ce3e8eb71c6c278ccb0574d1a7a3bb8eaaf5e50e0ad342afb33b36"},
-    {file = "pytest_asyncio-0.20.3-py3-none-any.whl", hash = "sha256:f129998b209d04fcc65c96fc85c11e5316738358909a8399e93be553d7656442"},
-]
-
-[package.dependencies]
-pytest = ">=6.1.0"
-
-[package.extras]
-docs = ["sphinx (>=5.3)", "sphinx-rtd-theme (>=1.0)"]
-testing = ["coverage (>=6.2)", "flaky (>=3.5.0)", "hypothesis (>=5.7.1)", "mypy (>=0.931)", "pytest-trio (>=0.7.0)"]
-
-[[package]]
-name = "pytest-mock"
-version = "3.14.0"
-description = "Thin-wrapper around the mock package for easier use with pytest"
-optional = false
-python-versions = ">=3.8"
-groups = ["dev"]
-files = [
-    {file = "pytest-mock-3.14.0.tar.gz", hash = "sha256:2719255a1efeceadbc056d6bf3df3d1c5015530fb40cf347c0f9afac88410bd0"},
-    {file = "pytest_mock-3.14.0-py3-none-any.whl", hash = "sha256:0b72c38033392a5f4621342fe11e9219ac11ec9d375f8e2a0c164539e0d70f6f"},
-]
-
-[package.dependencies]
-pytest = ">=6.2.5"
-
-[package.extras]
-dev = ["pre-commit", "pytest-asyncio", "tox"]
-
-[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 description = "Extensions to the standard Python datetime module"
@@ -1861,25 +1823,6 @@ files = [
 ]
 
 [[package]]
-name = "wasmtime"
-version = "15.0.0"
-description = "A WebAssembly runtime powered by Wasmtime"
-optional = false
-python-versions = ">=3.8"
-groups = ["main"]
-files = [
-    {file = "wasmtime-15.0.0-py3-none-any.whl", hash = "sha256:24de208dccea948e924b6af23c2b659f08bdd58e4ef5b549e2913a022cef2e50"},
-    {file = "wasmtime-15.0.0-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:137f6880a2a7eeec89ac98b46ef5e7e6082154cbd509926ec80d45a558432a24"},
-    {file = "wasmtime-15.0.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:4bfd230624b3972b869b3fae57c605556c00b1acdb18f3d60b5a21dcac5f1670"},
-    {file = "wasmtime-15.0.0-py3-none-manylinux1_x86_64.whl", hash = "sha256:79a416bd65468027842a15d21b78b4aa94ecca8281ae9a8d299a7860710882df"},
-    {file = "wasmtime-15.0.0-py3-none-manylinux2014_aarch64.whl", hash = "sha256:f74bd2af9dc7af37efae6efd1153377de6f9c43e88728448334eb6b5950718f5"},
-    {file = "wasmtime-15.0.0-py3-none-win_amd64.whl", hash = "sha256:fcad612253877a432c8f3c31c35adb521c59315fe6df0a7d7eb9b26a95f588b2"},
-]
-
-[package.extras]
-testing = ["coverage", "pycparser", "pytest", "pytest-mypy"]
-
-[[package]]
 name = "watchdog"
 version = "6.0.0"
 description = "Filesystem events monitoring"
@@ -2019,4 +1962,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<=3.13"
-content-hash = "c4da417ed9811afe6374f7c550fecd1142ecf00d8c36c54bd00f47da5734004e"
+content-hash = "96abd3230e59200782d35dd751106fd97d18693b6a471a925c700e92d66b0d2c"

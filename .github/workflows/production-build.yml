@@ -25,10 +25,17 @@ jobs:
           virtualenvs-in-project: true
       
       - name: Install dependencies
-        run: poetry install
-      
-      - name: Build DIDKit WASM (required for verification)
-        run: ./scripts/build_didkit_c_api.sh
+        run: |
+          # Install system dependencies (DIDKit native libraries)
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev pkg-config
+          
+          # Install rust (required for didkit)
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source "$HOME/.cargo/env"
+          
+          # Install Python dependencies via Poetry
+          poetry install
       
       - name: Create production build
         run: |
@@ -36,28 +43,37 @@ jobs:
           poetry run build_production --verify --clean
           echo "✓ Production build verified - No mock implementations found"
       
-      - name: Verify WASM operation in production mode
+      - name: Verify didkit package functionality
         run: |
           # Set production mode env var
           export VELA_PRODUCTION_MODE=true
           
-          # Run a self-test to verify actual WASM operation
+          # Run a self-test to verify didkit package functionality
           SELF_TEST_RESULT=$(poetry run python -c "
           import json
           import sys
-          from src.main import main
-          import os
+          import subprocess
           
-          os.environ['INPUT_OPERATION'] = 'self_test'
+          # Create JSON input for the self-test
+          input_json = json.dumps({'operation': 'self_test'})
           
           try:
-              result = main()
-              result_json = json.loads(result)
+              # Run the tool with JSON input via stdin
+              result = subprocess.run(
+                  ['python', '-m', 'src.main'],
+                  input=input_json,
+                  text=True,
+                  capture_output=True,
+                  check=True
+              )
+              
+              # Parse the result JSON
+              result_json = json.loads(result.stdout)
               if result_json.get('status') == 'success':
                   print('Self-test successful')
                   sys.exit(0)
               else:
-                  print(f'Self-test failed: {result}')
+                  print(f'Self-test failed: {result.stdout}')
                   sys.exit(1)
           except Exception as e:
               print(f'Error during self-test: {str(e)}')

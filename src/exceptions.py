@@ -1,217 +1,505 @@
 """
-Custom exceptions for the vela-did-tool.
-These exceptions provide specific error types with error codes and structured
-JSON response formatting.
+Custom exceptions for the Vela DID Tool.
+
+This module defines custom exceptions used throughout the tool.
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
+import sys
 
 
 class VelaError(Exception):
-    """Base exception class for Vela DID Tool errors."""
-    
-    # Error code ranges:
-    # 1000-1099: Input validation errors
-    # 1100-1199: Cryptographic operation errors
-    # 1200-1299: DID operation errors
-    # 1300-1399: Credential errors
-    # 1900-1999: System errors
-    
-    error_code: int = 1000
-    http_status: int = 400  # Default to Bad Request
+    """Base class for all Vela DID Tool errors."""
     
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new VelaError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
         self.message = message
         self.details = details or {}
-        super().__init__(self.message)
+        super().__init__(message)
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert the exception to a dictionary for JSON response."""
+        """
+        Convert the error to a dictionary representation.
+        
+        Returns:
+            Dictionary with error details
+        """
         result = {
-            "status": "error",
-            "error": {
-                "code": self.error_code,
-                "message": self.message,
-            }
+            "type": self.__class__.__name__,
+            "message": self.message
         }
         
         if self.details:
-            result["error"]["details"] = self.details
+            result["details"] = self.details
             
         return result
 
 
-# Input Validation Errors (1000-1099)
-
-class MissingParameterError(VelaError):
-    """Raised when a required parameter is missing."""
-    error_code = 1001
+class ConfigError(VelaError):
+    """Raised when there's an error with the configuration."""
     
-    def __init__(self, parameter: str, message: Optional[str] = None):
-        self.parameter = parameter
-        super().__init__(
-            message or f"Missing required parameter: {parameter}",
-            {"parameter": parameter}
-        )
-
-
-class InvalidParameterError(VelaError):
-    """Raised when a parameter has an invalid value."""
-    error_code = 1002
-    
-    def __init__(self, parameter: str, reason: str, value: Optional[Any] = None):
-        self.parameter = parameter
-        self.reason = reason
-        details = {"parameter": parameter, "reason": reason}
-        if value is not None:
-            details["provided_value"] = str(value)
-        super().__init__(f"Invalid parameter '{parameter}': {reason}", details)
-
-
-class SchemaValidationError(VelaError):
-    """Raised when input validation fails against a schema."""
-    error_code = 1003
-    
-    def __init__(self, errors: List[str]):
-        super().__init__(
-            f"Input validation failed: {len(errors)} error(s)",
-            {"validation_errors": errors}
-        )
-
-
-# Cryptographic Operation Errors (1100-1199)
-
-class SigningError(VelaError):
-    """Raised when a signing operation fails."""
-    error_code = 1101
-    
-    def __init__(self, reason: str, details: Optional[Dict[str, Any]] = None):
-        merged_details = {"reason": reason}
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new ConfigError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "configuration"}
         if details:
             merged_details.update(details)
-        super().__init__(f"Signing operation failed: {reason}", merged_details)
+        super().__init__(f"Configuration error: {message}", merged_details)
+
+
+class ParameterError(VelaError):
+    """Raised when a parameter is missing or invalid."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new ParameterError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "parameter_validation"}
+        if details:
+            merged_details.update(details)
+        super().__init__(f"Parameter error: {message}", merged_details)
+
+
+class InputError(VelaError):
+    """Base class for input-related errors."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new InputError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "input"}
+        if details:
+            merged_details.update(details)
+        super().__init__(message, merged_details)
+
+
+class MissingParameterError(InputError):
+    """Error raised when a required parameter is missing."""
+    
+    def __init__(self, parameter_name: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new MissingParameterError.
+        
+        Args:
+            parameter_name: Name of the missing parameter
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"parameter_name": parameter_name}
+        if details:
+            merged_details.update(details)
+        super().__init__(f"Missing required parameter '{parameter_name}'", merged_details)
+
+
+class InvalidParameterError(InputError):
+    """Error raised when a parameter has an invalid value."""
+    
+    def __init__(self, parameter_name: str, reason: Optional[str] = None, 
+                 details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new InvalidParameterError.
+        
+        Args:
+            parameter_name: Name of the invalid parameter
+            reason: Optional reason for why the parameter is invalid
+            details: Optional dictionary with additional error details
+        """
+        message = f"Invalid parameter '{parameter_name}'"
+        if reason:
+            message += f": {reason}"
+            
+        merged_details = {"parameter_name": parameter_name}
+        if reason:
+            merged_details["reason"] = reason
+        if details:
+            merged_details.update(details)
+            
+        super().__init__(message, merged_details)
+
+
+class SchemaValidationError(InputError):
+    """Error raised when JSON schema validation fails."""
+    
+    def __init__(self, errors: Any, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new SchemaValidationError.
+        
+        Args:
+            errors: Validation errors
+            details: Optional dictionary with additional error details
+        """
+        message = f"Schema validation failed: {errors}"
+        merged_details = {"validation_errors": errors}
+        if details:
+            merged_details.update(details)
+        super().__init__(message, merged_details)
+
+
+class CredentialError(VelaError):
+    """Raised when there's an error with a credential."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new CredentialError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "credential"}
+        if details:
+            merged_details.update(details)
+        super().__init__(f"Credential error: {message}", merged_details)
+
+
+class CredentialCreationError(CredentialError):
+    """Error raised when creating a credential fails."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new CredentialCreationError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_subtype": "creation"}
+        if details:
+            merged_details.update(details)
+        super().__init__(message, merged_details)
+
+
+class CredentialFormatError(CredentialError):
+    """Error raised when there's an issue with credential format."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new CredentialFormatError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_subtype": "format"}
+        if details:
+            merged_details.update(details)
+        super().__init__(message, merged_details)
+
+
+class CredentialParseError(CredentialError):
+    """Error raised when parsing a credential fails."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new CredentialParseError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_subtype": "parse"}
+        if details:
+            merged_details.update(details)
+        super().__init__(message, merged_details)
+
+
+class SigningError(VelaError):
+    """Raised when there's an error signing a message."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new SigningError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "signing"}
+        if details:
+            merged_details.update(details)
+        super().__init__(f"Signing error: {message}", merged_details)
 
 
 class VerificationError(VelaError):
-    """Raised when a verification operation fails."""
-    error_code = 1102
+    """Raised when there's an error verifying a signature."""
     
-    def __init__(self, reason: str, details: Optional[Dict[str, Any]] = None):
-        merged_details = {"reason": reason}
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, 
+                 code: int = 1200, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new VerificationError.
+        
+        Args:
+            message: Error message
+            context: Context information about the verification
+            code: Error code
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {
+            "error_type": "verification",
+            "code": code
+        }
+        if context:
+            merged_details["context"] = context
         if details:
             merged_details.update(details)
-        super().__init__(f"Verification operation failed: {reason}", merged_details)
+        super().__init__(f"Verification error: {message}", merged_details)
 
 
-# DID Operation Errors (1200-1299)
-
-class DIDGenerationError(VelaError):
-    """Raised when DID generation fails."""
-    error_code = 1201
+class PresentationError(VelaError):
+    """Base class for presentation-related errors."""
     
-    def __init__(self, reason: str, details: Optional[Dict[str, Any]] = None):
-        merged_details = {"reason": reason}
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new PresentationError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "presentation"}
         if details:
             merged_details.update(details)
-        super().__init__(f"DID generation failed: {reason}", merged_details)
+        super().__init__(f"Presentation error: {message}", merged_details)
 
 
-class DIDResolutionError(VelaError):
-    """Raised when DID resolution fails."""
-    error_code = 1202
+class PresentationFormatError(PresentationError):
+    """Error raised when there's an issue with presentation format."""
     
-    def __init__(self, did: str, reason: str):
-        super().__init__(
-            f"Failed to resolve DID '{did}': {reason}",
-            {"did": did, "reason": reason}
-        )
-
-
-# Credential Errors (1300-1399)
-
-class CredentialError(VelaError):
-    """Raised for general credential errors."""
-    error_code = 1301
-    
-    def __init__(self, reason: str, details: Optional[Dict[str, Any]] = None):
-        merged_details = {"reason": reason}
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new PresentationFormatError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_subtype": "format"}
         if details:
             merged_details.update(details)
-        super().__init__(f"Credential error: {reason}", merged_details)
+        super().__init__(message, merged_details)
 
 
-class CredentialValidationError(CredentialError):
-    """Raised when a credential fails structural validation."""
-    error_code = 1302
+class OperationError(VelaError):
+    """Raised when there's an error with an operation."""
     
-    def __init__(self, issues: List[str]):
-        super().__init__(
-            f"Credential validation failed: {len(issues)} issue(s)",
-            {"validation_issues": issues}
-        )
-
-
-class ContentVerificationError(CredentialError):
-    """Raised when credential content verification fails."""
-    error_code = 1303
-    
-    def __init__(self, reason: str, expected: Any, actual: Any):
-        super().__init__(
-            f"Content verification failed: {reason}",
-            {
-                "reason": reason,
-                "expected": expected,
-                "actual": actual
-            }
-        )
-
-
-# System Errors (1900-1999)
-
-class WAsmIntegrityError(VelaError):
-    """Raised when WASM integrity verification fails."""
-    error_code = 1901
-    http_status = 500  # Internal Server Error
-    
-    def __init__(self, reason: str, details: Optional[Dict[str, Any]] = None):
-        merged_details = {"reason": reason}
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new OperationError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "operation"}
         if details:
             merged_details.update(details)
-        super().__init__(f"WASM integrity verification failed: {reason}", merged_details)
+        super().__init__(f"Operation error: {message}", merged_details)
 
 
-class ConfigurationError(VelaError):
-    """Raised when there's a configuration error."""
-    error_code = 1902
-    http_status = 500  # Internal Server Error
+class UnsupportedOperationError(OperationError):
+    """Raised when an unsupported operation is requested."""
     
-    def __init__(self, reason: str, details: Optional[Dict[str, Any]] = None):
-        merged_details = {"reason": reason}
+    def __init__(self, operation: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new UnsupportedOperationError.
+        
+        Args:
+            operation: The unsupported operation name
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"unsupported_operation": operation}
         if details:
             merged_details.update(details)
-        super().__init__(f"Configuration error: {reason}", merged_details)
+        super().__init__(f"Unsupported operation: {operation}", merged_details)
 
 
-class MockInProductionError(VelaError):
-    """Raised when mock implementation is used in production."""
-    error_code = 1903
-    http_status = 500  # Internal Server Error
+class SecurityError(VelaError):
+    """Raised when there's a security-related error."""
     
-    def __init__(self):
-        super().__init__(
-            "CRITICAL SECURITY ERROR: Mock implementation detected in production mode"
-        )
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new SecurityError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "security"}
+        if details:
+            merged_details.update(details)
+        super().__init__(f"Security error: {message}", merged_details)
 
 
-class UnknownOperationError(VelaError):
-    """Raised when an unknown operation is requested."""
-    error_code = 1904
+class ProductionModeError(SecurityError):
+    """Raised when a non-production feature is used in production mode."""
     
-    def __init__(self, operation: str, valid_operations: List[str]):
-        super().__init__(
-            f"Unknown operation: '{operation}'",
-            {
-                "requested_operation": operation,
-                "valid_operations": valid_operations
-            }
-        ) 
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new ProductionModeError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_subtype": "production_mode"}
+        if details:
+            merged_details.update(details)
+        super().__init__(f"Production mode violation: {message}", merged_details)
+
+
+class ProductionGuardError(SecurityError):
+    """Error raised when a production guard check fails."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new ProductionGuardError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_subtype": "production_guard"}
+        if details:
+            merged_details.update(details)
+        super().__init__(f"Production guard error: {message}", merged_details)
+
+
+class SelfTestError(VelaError):
+    """Error raised when a self-test fails."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new SelfTestError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "self_test"}
+        if details:
+            merged_details.update(details)
+        super().__init__(f"Self-test failure: {message}", merged_details)
+
+
+class DidError(VelaError):
+    """Base class for DID-related errors."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new DidError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "did"}
+        if details:
+            merged_details.update(details)
+        super().__init__(f"DID error: {message}", merged_details)
+
+
+class DidGenerationError(DidError):
+    """Error raised when DID generation fails."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new DidGenerationError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_subtype": "generation"}
+        if details:
+            merged_details.update(details)
+        super().__init__(message, merged_details)
+
+
+class DidResolutionError(DidError):
+    """Error raised when DID resolution fails."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new DidResolutionError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_subtype": "resolution"}
+        if details:
+            merged_details.update(details)
+        super().__init__(message, merged_details)
+
+
+class SecretError(VelaError):
+    """Base class for secret-related errors."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new SecretError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_type": "secret"}
+        if details:
+            merged_details.update(details)
+        super().__init__(f"Secret error: {message}", merged_details)
+
+
+class SecretRetrievalError(SecretError):
+    """Error raised when retrieving a secret fails."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new SecretRetrievalError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_subtype": "retrieval"}
+        if details:
+            merged_details.update(details)
+        super().__init__(message, merged_details)
+
+
+class SecretStorageError(SecretError):
+    """Error raised when storing a secret fails."""
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        """
+        Initialize a new SecretStorageError.
+        
+        Args:
+            message: Error message
+            details: Optional dictionary with additional error details
+        """
+        merged_details = {"error_subtype": "storage"}
+        if details:
+            merged_details.update(details)
+        super().__init__(message, merged_details)
+
+
+# Add an alias for backward compatibility
+errors = sys.modules[__name__] 

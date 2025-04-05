@@ -11,7 +11,9 @@ from typing import Dict, Any, List, Optional, Union, Callable, TypeVar, cast
 from .exceptions import (
     MissingParameterError,
     InvalidParameterError,
-    SchemaValidationError
+    SchemaValidationError,
+    CredentialParseError,
+    CredentialFormatError
 )
 
 # Type variable for generic validators
@@ -74,73 +76,67 @@ def validate_optional(
 
 def validate_string(
     params: Dict[str, Any], 
-    parameter: str, 
-    required: bool = True,
-    min_length: Optional[int] = None,
+    key: str, 
+    required: bool = False,
+    min_length: int = 0,
     max_length: Optional[int] = None,
     pattern: Optional[str] = None,
-    default: Optional[str] = None
-) -> Optional[str]:
+    choices: Optional[List[str]] = None
+) -> str:
     """
-    Validates a string parameter.
+    Validate that a parameter is a string and meets the specified constraints.
     
     Args:
-        params: The parameters dictionary
-        parameter: The name of the parameter to validate
+        params: Dictionary containing parameters
+        key: The key to validate
         required: Whether the parameter is required
         min_length: Minimum length of the string
         max_length: Maximum length of the string
         pattern: Regex pattern the string must match
-        default: Default value if parameter is missing
+        choices: List of valid values
         
     Returns:
-        The validated string or default
+        The validated string value
         
     Raises:
-        MissingParameterError: If a required parameter is missing
-        InvalidParameterError: If validation fails
+        MissingParameterError: If the parameter is required but missing
+        InvalidParameterError: If the parameter fails validation
     """
-    # Get value based on required flag
-    if required:
-        value = validate_required(params, parameter)
-    else:
-        value = validate_optional(params, parameter, default)
-        if value is None:
-            return None
+    # Check if the parameter exists
+    if key not in params:
+        if required:
+            raise MissingParameterError(key)
+        return ""
     
-    # Ensure value is a string
+    # Check if it's a string
+    value = params[key]
     if not isinstance(value, str):
         raise InvalidParameterError(
-            parameter,
-            f"Must be a string, got {type(value).__name__}",
-            value
+            key, f"Expected string but got {type(value).__name__}"
         )
     
-    # Strip value
-    value = value.strip()
-    
     # Check minimum length
-    if min_length is not None and len(value) < min_length:
+    if min_length > 0 and len(value) < min_length:
         raise InvalidParameterError(
-            parameter,
-            f"Must be at least {min_length} characters long",
-            value
+            key, f"String must be at least {min_length} characters long"
         )
     
     # Check maximum length
     if max_length is not None and len(value) > max_length:
         raise InvalidParameterError(
-            parameter,
-            f"Must be at most {max_length} characters long",
-            value
+            key, f"String must be at most {max_length} characters long"
         )
     
     # Check pattern
     if pattern is not None and not re.match(pattern, value):
         raise InvalidParameterError(
-            parameter,
-            f"Does not match required pattern: {pattern}",
-            value
+            key, f"String must match pattern: {pattern}"
+        )
+    
+    # Check if value is in allowed choices
+    if choices is not None and value not in choices:
+        raise InvalidParameterError(
+            key, f"Value must be one of: {', '.join(choices)}"
         )
     
     return value
@@ -148,323 +144,292 @@ def validate_string(
 
 def validate_integer(
     params: Dict[str, Any], 
-    parameter: str, 
-    required: bool = True,
+    key: str, 
+    required: bool = False,
     min_value: Optional[int] = None,
     max_value: Optional[int] = None,
-    default: Optional[int] = None
-) -> Optional[int]:
+    default: Optional[int] = None,
+    default_value: Optional[int] = None
+) -> int:
     """
-    Validates an integer parameter.
+    Validate that a parameter is an integer and meets the specified constraints.
     
     Args:
-        params: The parameters dictionary
-        parameter: The name of the parameter to validate
+        params: Dictionary containing parameters
+        key: The key to validate
         required: Whether the parameter is required
-        min_value: Minimum value allowed
-        max_value: Maximum value allowed
-        default: Default value if parameter is missing
+        min_value: Minimum allowed value
+        max_value: Maximum allowed value
+        default: Default value if parameter is missing and not required
+        default_value: Alternative parameter name for default value (for compatibility)
         
     Returns:
-        The validated integer or default
+        The validated integer value
         
     Raises:
-        MissingParameterError: If a required parameter is missing
-        InvalidParameterError: If validation fails
+        MissingParameterError: If the parameter is required but missing
+        InvalidParameterError: If the parameter fails validation
     """
-    # Get value based on required flag
-    if required:
-        value = validate_required(params, parameter)
-    else:
-        value = validate_optional(params, parameter, default)
-        if value is None:
-            return default
+    # Use default_value if provided, otherwise use default
+    if default_value is not None:
+        default = default_value
+        
+    # Check if the parameter exists
+    if key not in params:
+        if required:
+            raise MissingParameterError(key)
+        return default if default is not None else 0
     
-    # Convert to integer if string
+    # Get the value and try to convert to int if it's a string
+    value = params[key]
     if isinstance(value, str):
         try:
-            value = int(value.strip())
+            value = int(value)
         except ValueError:
             raise InvalidParameterError(
-                parameter,
-                "Must be a valid integer",
-                value
+                key, f"Could not convert string '{value}' to integer"
             )
     
-    # Ensure value is an integer
+    # Check if it's an integer
     if not isinstance(value, int):
         raise InvalidParameterError(
-            parameter,
-            f"Must be an integer, got {type(value).__name__}",
-            value
+            key, f"Expected integer but got {type(value).__name__}"
         )
     
     # Check minimum value
     if min_value is not None and value < min_value:
         raise InvalidParameterError(
-            parameter,
-            f"Must be at least {min_value}",
-            value
+            key, f"Value must be at least {min_value}"
         )
     
     # Check maximum value
     if max_value is not None and value > max_value:
         raise InvalidParameterError(
-            parameter,
-            f"Must be at most {max_value}",
-            value
+            key, f"Value must be at most {max_value}"
         )
     
     return value
 
 
-def validate_did(
-    params: Dict[str, Any], 
-    parameter: str, 
-    required: bool = True,
-    default: Optional[str] = None
-) -> Optional[str]:
+def validate_did(params: Dict[str, Any], key: str, required: bool = False, default_value: Optional[str] = None) -> str:
     """
-    Validates a DID parameter.
+    Validate that a parameter is a valid DID.
     
     Args:
-        params: The parameters dictionary
-        parameter: The name of the parameter to validate
+        params: Dictionary containing parameters
+        key: The key to validate
         required: Whether the parameter is required
-        default: Default value if parameter is missing
+        default_value: Default value to use if the parameter is missing
         
     Returns:
-        The validated DID or default
+        The validated DID string
         
     Raises:
-        MissingParameterError: If a required parameter is missing
-        InvalidParameterError: If validation fails
+        MissingParameterError: If the parameter is required but missing
+        InvalidParameterError: If the parameter is not a valid DID
     """
-    did_pattern = r'^did:[a-z0-9]+:.+$'
+    # Basic DID pattern: did:method:specific-id
+    did_pattern = r'^did:[a-z]+:.+$'
     
-    value = validate_string(
+    # Check if parameter is missing and we have a default value
+    if key not in params and default_value is not None:
+        return default_value
+    
+    # Use the string validator with the DID pattern
+    return validate_string(
         params, 
-        parameter, 
-        required=required, 
-        pattern=did_pattern, 
-        default=default
+        key, 
+        required=required,
+        min_length=7,  # Minimum possible length for a valid DID (did:a:b)
+        pattern=did_pattern
     )
-    
-    return value
 
 
-def validate_jwk(
-    params: Dict[str, Any], 
-    parameter: str, 
-    required: bool = True
-) -> Optional[Dict[str, Any]]:
+def validate_jwk(params: Dict[str, Any], key: str, required: bool = False) -> Dict[str, Any]:
     """
-    Validates a JWK parameter.
+    Validate that a parameter is a valid JWK (either as a string or dict).
     
     Args:
-        params: The parameters dictionary
-        parameter: The name of the parameter to validate
+        params: Dictionary containing parameters
+        key: The key to validate
         required: Whether the parameter is required
         
     Returns:
-        The validated JWK as dict
+        The validated JWK as a dictionary
         
     Raises:
-        MissingParameterError: If a required parameter is missing
-        InvalidParameterError: If validation fails
+        MissingParameterError: If the parameter is required but missing
+        InvalidParameterError: If the parameter is not a valid JWK
     """
-    # Get value
-    if required:
-        value = validate_required(params, parameter)
-    else:
-        value = validate_optional(params, parameter)
-        if value is None:
-            return None
+    # Check if the parameter exists
+    if key not in params:
+        if required:
+            raise MissingParameterError(key)
+        return {}
     
-    # If string, try to parse as JSON
+    value = params[key]
+    
+    # If it's a string, try to parse it as JSON
     if isinstance(value, str):
         try:
             value = json.loads(value)
         except json.JSONDecodeError:
             raise InvalidParameterError(
-                parameter,
-                "Must be a valid JSON object",
-                value
+                key, "JWK string is not valid JSON"
             )
     
-    # Ensure value is a dict
+    # Check if it's a dictionary
     if not isinstance(value, dict):
         raise InvalidParameterError(
-            parameter,
-            f"Must be a JWK object, got {type(value).__name__}",
-            value
+            key, f"Expected JWK object but got {type(value).__name__}"
         )
     
-    # Validate JWK structure
-    required_jwk_fields = ['kty']
-    missing_fields = [field for field in required_jwk_fields if field not in value]
-    
-    if missing_fields:
+    # Check required JWK fields
+    if 'kty' not in value:
         raise InvalidParameterError(
-            parameter,
-            f"Invalid JWK: missing required fields: {', '.join(missing_fields)}",
-            value
+            key, "JWK missing required 'kty' field"
         )
     
-    # Check for private key component
-    if required and 'd' not in value:
-        raise InvalidParameterError(
-            parameter,
-            "Private key component ('d') is required for signing operations",
-            value
-        )
+    # For specific key types, check additional required fields
+    if value['kty'] == 'OKP':
+        if 'crv' not in value:
+            raise InvalidParameterError(
+                key, "OKP JWK missing required 'crv' field"
+            )
+        if 'x' not in value:
+            raise InvalidParameterError(
+                key, "OKP JWK missing required 'x' field (public key)"
+            )
     
     return value
 
 
-def validate_credential(
-    params: Dict[str, Any], 
-    parameter: str, 
-    required: bool = True
-) -> Optional[Union[Dict[str, Any], str]]:
+def validate_credential(params: Dict[str, Any], key: str, required: bool = False) -> str:
     """
-    Validates a verifiable credential parameter.
+    Validate that a parameter is a valid Verifiable Credential JSON string.
     
     Args:
-        params: The parameters dictionary
-        parameter: The name of the parameter to validate
+        params: Dictionary containing parameters
+        key: The key to validate
         required: Whether the parameter is required
         
     Returns:
-        The validated credential (as string or dict)
+        The validated credential string
         
     Raises:
-        MissingParameterError: If a required parameter is missing
-        InvalidParameterError: If validation fails
+        MissingParameterError: If the parameter is required but missing
+        InvalidParameterError: If the parameter is not a valid credential
     """
-    # Get value
-    if required:
-        value = validate_required(params, parameter)
-    else:
-        value = validate_optional(params, parameter)
-        if value is None:
-            return None
+    # Get the string value
+    credential_str = validate_string(
+        params, 
+        key, 
+        required=required,
+        min_length=2  # At least "{}" for a minimal JSON
+    )
     
-    # If it's a string that looks like JSON, try to parse it
-    if isinstance(value, str) and value.strip().startswith('{'):
-        try:
-            # Just validate it's parseable, but return the original string
-            json.loads(value)
-        except json.JSONDecodeError:
-            raise InvalidParameterError(
-                parameter,
-                "Invalid JSON format",
-                value
-            )
-    # If it's a dict, just return it
-    elif isinstance(value, dict):
-        pass
-    # If it's a string that doesn't look like JSON, it might be a JWT
-    elif isinstance(value, str):
-        # Basic JWT format check (three base64-encoded parts separated by dots)
-        if not re.match(r'^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$', value):
-            raise InvalidParameterError(
-                parameter,
-                "Invalid credential format: must be valid JSON or JWT",
-                value
-            )
-    else:
-        raise InvalidParameterError(
-            parameter,
-            f"Must be a verifiable credential as JSON or JWT, got {type(value).__name__}",
-            value
-        )
+    if not credential_str:
+        return credential_str
     
-    return value
+    # Check if it's a valid JSON
+    try:
+        credential = json.loads(credential_str)
+    except json.JSONDecodeError:
+        # If it starts with "ey", it might be a JWT
+        if credential_str.startswith("ey") and "." in credential_str:
+            # It appears to be a JWT - we'll let the actual verification code handle this
+            return credential_str
+        else:
+            raise InvalidParameterError(
+                key, "Credential is not valid JSON or JWT format"
+            )
+    
+    # If it's a JSON object, check for minimal VC fields if not a JWT
+    if isinstance(credential, dict):
+        # For JWT-formatted credentials, we don't need to validate structure here
+        # For JSON-LD credentials, check for minimal required fields
+        if '@context' not in credential:
+            raise InvalidParameterError(
+                key, "Credential missing required '@context' field"
+            )
+        if 'type' not in credential:
+            raise InvalidParameterError(
+                key, "Credential missing required 'type' field"
+            )
+    
+    return credential_str
 
 
 def validate_verification_method(
     params: Dict[str, Any], 
-    parameter: str, 
-    required: bool = True,
-    default: Optional[str] = None
-) -> Optional[str]:
+    key: str, 
+    required: bool = False
+) -> str:
     """
-    Validates a verification method parameter.
+    Validate that a parameter is a valid verification method DID URL.
     
     Args:
-        params: The parameters dictionary
-        parameter: The name of the parameter to validate
+        params: Dictionary containing parameters
+        key: The key to validate
         required: Whether the parameter is required
-        default: Default value if parameter is missing
         
     Returns:
-        The validated verification method or default
+        The validated verification method string
         
     Raises:
-        MissingParameterError: If a required parameter is missing
-        InvalidParameterError: If validation fails
+        MissingParameterError: If the parameter is required but missing
+        InvalidParameterError: If the parameter is not a valid verification method
     """
-    # Verification method should be a DID URL (DID with fragment)
-    vm_pattern = r'^did:[a-z0-9]+:.+#.+$'
+    # Verification method pattern: did:method:specific-id#fragment
+    vm_pattern = r'^did:[a-z]+:.+#.+$'
     
-    value = validate_string(
+    # Use the string validator with the verification method pattern
+    return validate_string(
         params, 
-        parameter, 
-        required=required, 
-        pattern=vm_pattern if required else None,  # Only enforce pattern if required
-        default=default
+        key, 
+        required=required,
+        min_length=9,  # Minimum possible length (did:a:b#c)
+        pattern=vm_pattern
     )
-    
-    return value
 
 
 def validate_credential_type(
     params: Dict[str, Any], 
-    parameter: str, 
-    allowed_types: List[str],
+    key: str, 
     required: bool = False,
-    default: Optional[str] = None
-) -> Optional[str]:
+    valid_types: Optional[List[str]] = None,
+    default_value: Optional[str] = None
+) -> str:
     """
-    Validates a credential type parameter.
+    Validate that a parameter is a valid credential type.
     
     Args:
-        params: The parameters dictionary
-        parameter: The name of the parameter to validate
-        allowed_types: List of allowed credential types
+        params: Dictionary containing parameters
+        key: The key to validate
         required: Whether the parameter is required
-        default: Default value if parameter is missing
+        valid_types: List of valid credential types
+        default_value: Default value to use if the parameter is missing
         
     Returns:
-        The validated credential type or default
+        The validated credential type string
         
     Raises:
-        MissingParameterError: If a required parameter is missing
-        InvalidParameterError: If validation fails
+        MissingParameterError: If the parameter is required but missing
+        InvalidParameterError: If the parameter is not a valid credential type
     """
-    # Get value
-    if required:
-        value = validate_required(params, parameter)
-    else:
-        value = validate_optional(params, parameter, default)
-        if value is None:
-            return default
+    if valid_types is None:
+        # Default valid credential types
+        valid_types = ["VerifiableCredential", "AgentCredential"]
     
-    # Ensure value is a string
-    if not isinstance(value, str):
-        raise InvalidParameterError(
-            parameter,
-            f"Must be a string, got {type(value).__name__}",
-            value
-        )
+    # Check if parameter is missing and we have a default value
+    if key not in params and default_value is not None:
+        return default_value
     
-    # Validate against allowed types
-    if value not in allowed_types:
-        raise InvalidParameterError(
-            parameter,
-            f"Must be one of: {', '.join(allowed_types)}",
-            value
-        )
-    
-    return value 
+    # Use the string validator with the allowed choices
+    return validate_string(
+        params, 
+        key, 
+        required=required,
+        min_length=1,
+        choices=valid_types
+    ) 

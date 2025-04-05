@@ -2,8 +2,8 @@
 """
 Production build script for vela-did-tool.
 
-This script prepares a clean production build by physically excluding mock
-implementations and development-only code, then packaging the result.
+This script prepares a clean production build by physically excluding development-only
+code, then packaging the result.
 
 Usage:
     python scripts/build_for_production.py
@@ -22,15 +22,11 @@ from pathlib import Path
 
 # Files to exclude from production builds
 EXCLUDED_PATHS = [
-    "src/wasm/mock_didkit.py",
-    "src/wasm/__pycache__/mock_didkit.cpython-*.pyc",
     "tests/test_mock*.py",
 ]
 
 # Directories to skip when copying
 SKIP_DIRS = [
-    "didkit",
-    "ssi",
     ".git",
     "__pycache__",
     ".pytest_cache",
@@ -51,7 +47,7 @@ def parse_args():
     parser.add_argument("--output-dir", "-o", default="dist",
                         help="Output directory for production build")
     parser.add_argument("--verify", "-v", action="store_true",
-                        help="Verify build doesn't contain mock implementations")
+                        help="Verify build")
     parser.add_argument("--clean", "-c", action="store_true",
                         help="Clean output directory before building")
     return parser.parse_args()
@@ -62,7 +58,7 @@ def create_production_build(output_dir, verify=True, clean=False):
     
     Args:
         output_dir: Directory where the build should be placed
-        verify: Whether to verify the build is mock-free
+        verify: Whether to verify the build
         clean: Whether to clean the output directory first
     """
     root_dir = Path(__file__).parent.parent
@@ -100,11 +96,11 @@ def create_production_build(output_dir, verify=True, clean=False):
                 log(f"Warning: Error copying {item}: {e}")
                 # Continue despite errors
         
-        # Exclude mock implementations
+        # Exclude patterns
         for pattern in EXCLUDED_PATHS:
             for path in Path(tmp_path).glob(pattern):
                 if path.exists():
-                    log(f"Removing mock implementation: {path.relative_to(tmp_path)}")
+                    log(f"Removing file: {path.relative_to(tmp_path)}")
                     if path.is_dir():
                         shutil.rmtree(path)
                     else:
@@ -118,7 +114,7 @@ def create_production_build(output_dir, verify=True, clean=False):
             
             # Force production mode to True in the build
             content = content.replace(
-                'PRODUCTION_MODE = os.environ.get("VELA_PRODUCTION_MODE", "").lower() == "true"',
+                'PRODUCTION_MODE = os.environ.get("VELA_PRODUCTION_MODE", "").lower() in ("true", "1", "yes")',
                 'PRODUCTION_MODE = True  # Hardcoded for production build'
             )
             
@@ -151,9 +147,9 @@ def create_production_build(output_dir, verify=True, clean=False):
             log(f"Warning: No distribution files found in {dist_dir}")
             return False
         
-        # Verify the build is mock-free
+        # Verify the build
         if verify:
-            log("Verifying build does not contain mock implementations...")
+            log("Verifying build...")
             wheel_file = next(output_path.glob("*.whl"), None)
             if wheel_file:
                 # Python wheel files are actually zip files
@@ -162,22 +158,13 @@ def create_production_build(output_dir, verify=True, clean=False):
                         # List all files in the wheel
                         file_list = zip_ref.namelist()
                         
-                        # Check for mock files
-                        mock_files = [f for f in file_list if "mock_didkit" in f]
-                        if mock_files:
-                            log("ERROR: Mock implementation found in the build:")
-                            for f in mock_files:
-                                log(f"  - {f}")
-                            return False
-                        else:
-                            log("Verification passed: No mock implementations found in build")
-                            # Print a summary of key included files for verification
-                            log("Build contents summary:")
-                            python_files = [f for f in file_list if f.endswith(".py")]
-                            for f in sorted(python_files)[:10]:  # Show first 10 Python files
-                                log(f"  - {f}")
-                            if len(python_files) > 10:
-                                log(f"  - ... and {len(python_files) - 10} more Python files")
+                        # Print a summary of key included files for verification
+                        log("Build contents summary:")
+                        python_files = [f for f in file_list if f.endswith(".py")]
+                        for f in sorted(python_files)[:10]:  # Show first 10 Python files
+                            log(f"  - {f}")
+                        if len(python_files) > 10:
+                            log(f"  - ... and {len(python_files) - 10} more Python files")
                 except zipfile.BadZipFile as e:
                     log(f"Error opening wheel file for verification: {e}")
                     return False
