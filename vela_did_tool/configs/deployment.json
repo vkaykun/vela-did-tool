@@ -1,0 +1,14 @@
+[
+    {
+      "module": {
+        "name": "vela_did_tool",
+        "description": "Tool for DID:Key and VC operations (Ed25519, JSON-LD/JWT)",
+        "parameters": "{\"func_name\": \"str\", \"func_input_data\": \"dict\"}",
+        "module_type": "tool",
+        "module_version": "master",
+        "module_entrypoint": "run.py",
+        "execution_type": "package"
+      },
+      "config": {} 
+    }
+  ]

@@ -1,0 +1,51 @@
+[tool.poetry]
+name = "vela-did-tool"
+version = "0.1.0"
+description = "Naptha Tool Module for DID:Key generation and Verifiable Credential signing/verification (JSON-LD & JWT)."
+authors = ["vkay <contact@vkaykun>"] 
+readme = "README.md"
+license = "Apache-2.0" 
+packages = [{include = "vela_did_tool"}]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<=3.13"
+
+cryptography = ">=42.0.0" 
+jwcrypto = ">=1.5.0"   
+PyLD = ">=2.0.3"        
+py-multibase = ">=1.0.0" 
+py-multicodec = ">=0.2.0" 
+pydantic = ">=2.5.0"    
+naptha-sdk = ">=1.0.0" 
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0"
+pytest-cov = ">=4.0.0"
+flake8 = ">=6.0"
+mypy = ">=1.0"
+types-requests = ">=2.28.0" # For PyLD's requests dependency type hints
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+vela-did-tool = "vela_did_tool.run:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
+[tool.coverage.run]
+source = ["vela_did_tool"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "pass",
+    "raise ImportError",
+]
