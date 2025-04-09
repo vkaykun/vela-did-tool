@@ -38,15 +38,16 @@ def _prepare_ld_proof_components(
     """Separates proof from credential and prepares proof options."""
     credential_no_proof = credential.copy()
     existing_proof = credential_no_proof.pop("proof", None)
-    if existing_proof and "proofValue" in proof_options:
-        del proof_options["proofValue"]
+    if "proofValue" in proof_options:
+         del proof_options["proofValue"]
 
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     proof_config = {
+        "@context": SECURITY_CONTEXT_V2,
         "type": DEFAULT_PROOF_TYPE,
         "created": now,
         "proofPurpose": DEFAULT_PROOF_PURPOSE,
-        **proof_options 
+        **proof_options
     }
     if "verificationMethod" not in proof_config:
         raise VcError("Missing 'verificationMethod' in proof options for signing.")
@@ -77,6 +78,10 @@ def _normalize_and_hash(
         
         normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
         
+        if '@context' not in doc_copy:
+             logger.warning("Document missing @context, assuming VC context v1 for normalization.")
+             doc_copy['@context'] = VC_JSONLD_CONTEXT_V1
+
         logger.debug(f"Normalizing document with contexts: {doc_copy.get('@context', [])}")
         normalized_doc = jsonld.normalize(doc_copy, normalize_options)
         
@@ -124,15 +129,7 @@ def sign_credential_jsonld(
   
     credential_no_proof, proof_config = _prepare_ld_proof_components(credential, proof_options)
 
-    proof_norm_doc = proof_config.copy()
-    if '@context' not in proof_norm_doc:
-        proof_norm_doc['@context'] = [SECURITY_CONTEXT_V2]
-    elif isinstance(proof_norm_doc['@context'], str):
-        proof_norm_doc['@context'] = [proof_norm_doc['@context'], SECURITY_CONTEXT_V2]
-    elif SECURITY_CONTEXT_V2 not in proof_norm_doc['@context']:
-        proof_norm_doc['@context'] = list(proof_norm_doc['@context']) + [SECURITY_CONTEXT_V2]
-    
-    proof_hash = _normalize_and_hash(proof_norm_doc)
+    proof_hash = _normalize_and_hash(proof_config)
     logger.debug(f"Proof config hash: {proof_hash.hex()}")
     
     doc_hash = _normalize_and_hash(credential_no_proof)
@@ -153,8 +150,19 @@ def sign_credential_jsonld(
 
     proof_config_final = proof_config.copy()
     proof_config_final["proofValue"] = proof_value
+    if '@context' in proof_config_final:
+        del proof_config_final['@context']
 
     signed_credential = credential.copy()
+    main_contexts = signed_credential.get('@context', [])
+    if isinstance(main_contexts, str):
+        main_contexts = [main_contexts]
+    if VC_JSONLD_CONTEXT_V1 not in main_contexts:
+        main_contexts.append(VC_JSONLD_CONTEXT_V1)
+    if SECURITY_CONTEXT_V2 not in main_contexts:
+        main_contexts.append(SECURITY_CONTEXT_V2)
+    signed_credential['@context'] = main_contexts
+
     signed_credential["proof"] = proof_config_final
 
     logger.info("Successfully signed JSON-LD credential.")
@@ -220,6 +228,10 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
 
         proof_hash = _normalize_and_hash(proof_norm_doc)
         logger.debug(f"Verification proof config hash: {proof_hash.hex()}")
+
+        credential_to_normalize['@context'] = main_contexts = credential_to_normalize.get('@context', [])
+        if VC_JSONLD_CONTEXT_V1 not in main_contexts:
+             main_contexts.append(VC_JSONLD_CONTEXT_V1)
 
         doc_hash = _normalize_and_hash(credential_to_normalize)
         logger.debug(f"Verification credential doc hash: {doc_hash.hex()}")
