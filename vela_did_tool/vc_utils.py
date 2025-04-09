@@ -5,7 +5,7 @@
 import json
 import logging
 import datetime
-from typing import Dict, Any, Optional, Tuple, Union, List
+from typing import Dict, Any, Optional, Tuple, Union
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -59,8 +59,7 @@ def _normalize_and_hash(
     document_loader=default_document_loader
 ) -> bytes:
     """
-    Normalizes a JSON-LD document (assuming it has @context)
-    and returns its SHA-256 hash.
+    Normalizes a JSON-LD document and returns its SHA-256 hash.
     
     Args:
         doc: The JSON-LD document to normalize
@@ -74,17 +73,22 @@ def _normalize_and_hash(
         NormalizationError: If normalization fails
     """
     try:
-        normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
-        logger.debug(f"Normalizing document using default loader: {doc.get('@context')}")
-        # Pass doc directly, assuming it has the correct context
-        normalized_doc = jsonld.normalize(doc, normalize_options)
+        # Create a deep copy to avoid modifying the original document
+        doc_copy = json.loads(json.dumps(doc))
 
+        # Directly use the input document with the default loader
+        normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
+        
+        logger.debug(f"Normalizing document using default loader")
+        normalized_doc = jsonld.normalize(doc_copy, normalize_options)
+        
         logger.debug(f"Normalized Document (first 100 chars): {normalized_doc[:100]}")
         hasher = hashes.Hash(hashes.SHA256())
         hasher.update(normalized_doc.encode('utf-8'))
         return hasher.finalize()
     except Exception as e:
         logger.exception(f"JSON-LD normalization failed for document: {doc}")
+        # Include the specific error type for better debugging
         raise NormalizationError(f"Failed to normalize document: {type(e).__name__} - {e}")
 
 
@@ -95,7 +99,6 @@ def sign_credential_jsonld(
 ) -> Dict[str, Any]:
     """
     Signs a JSON-LD credential using the Ed25519Signature2020 suite.
-    Uses manual N-Quads construction for proof normalization to bypass PyLD issues.
 
     Args:
         credential: The credential document (dict) to sign.
@@ -122,53 +125,32 @@ def sign_credential_jsonld(
     except Exception as e:
         raise InvalidKeyFormatError(f"Failed to load private key from JWK: {e}")
     
-    # Ensure credential has contexts
+    # Ensure credential has the necessary contexts before processing
     credential_with_contexts = credential.copy()
     main_contexts = credential_with_contexts.get('@context', [])
-    if isinstance(main_contexts, str): main_contexts = [main_contexts]
-    if VC_JSONLD_CONTEXT_V1 not in main_contexts: main_contexts.append(VC_JSONLD_CONTEXT_V1)
-    if SECURITY_CONTEXT_V2 not in main_contexts: main_contexts.append(SECURITY_CONTEXT_V2)
+    if isinstance(main_contexts, str):
+        main_contexts = [main_contexts]
+    if VC_JSONLD_CONTEXT_V1 not in main_contexts:
+        main_contexts.append(VC_JSONLD_CONTEXT_V1)
+    if SECURITY_CONTEXT_V2 not in main_contexts:
+        main_contexts.append(SECURITY_CONTEXT_V2)
     credential_with_contexts['@context'] = main_contexts
-
+  
     credential_no_proof, proof_config = _prepare_ld_proof_components(credential_with_contexts, proof_options)
-
-    # --- Hashing ---
-    logger.debug("Computing proof hash for signing (MANUAL N-QUADS)")
-    try:
-        # Manually construct N-Quads for proof options
-        # Based on https://w3c-ccg.github.io/data-integrity-spec/#proof-configuration
-        created_iri = "http://purl.org/dc/terms/created"
-        proof_purpose_iri = "https://w3id.org/security#proofPurpose"
-        proof_type_iri = "https://w3id.org/security#Ed25519Signature2020"  # From DEFAULT_PROOF_TYPE
-        verification_method_iri = "https://w3id.org/security#verificationMethod"
-
-        # Construct N-Quads (URDNA2015 canonical form) - blank node _:c14n0
-        # Note: Literal datatypes and exact spacing are important.
-        proof_nquads = [
-            f'_:c14n0 <{created_iri}> "{proof_config["created"]}"^^<http://www.w3.org/2001/XMLSchema#dateTime> .',
-            f'_:c14n0 <{proof_purpose_iri}> <https://w3id.org/security#{proof_config["proofPurpose"]}> .',
-            f'_:c14n0 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <{proof_type_iri}> .',
-            f'_:c14n0 <{verification_method_iri}> <{proof_config["verificationMethod"]}> .',
-        ]
-        # Sort lexicographically as required by URDNA2015
-        proof_nquads.sort()
-        normalized_proof_string = "\n".join(proof_nquads) + "\n"
-        logger.debug(f"Manually constructed N-Quads for proof:\n{normalized_proof_string}")
-
-        hasher_proof = hashes.Hash(hashes.SHA256())
-        hasher_proof.update(normalized_proof_string.encode('utf-8'))
-        proof_hash = hasher_proof.finalize()
-        logger.debug(f"Proof config hash (manual): {proof_hash.hex()}")
-
-    except Exception as e:
-        logger.error(">>> FAILED constructing/hashing manual N-Quads for PROOF <<<")
-        raise NormalizationError(f"Failed during manual proof normalization: {e}")
-
+    
+    # Ensure proof config also has necessary contexts
+    proof_norm_doc = proof_config.copy()
+    if '@context' not in proof_norm_doc:
+        proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
+    
+    logger.debug("Computing proof hash for signing")
+    proof_hash = _normalize_and_hash(proof_norm_doc)
+    logger.debug(f"Proof config hash: {proof_hash.hex()}")
+    
     logger.debug("Computing document hash for signing")
-    # Normalize credential body using pyld (this part usually works)
     doc_hash = _normalize_and_hash(credential_no_proof)
     logger.debug(f"Credential doc hash: {doc_hash.hex()}")
-
+    
     data_to_sign = proof_hash + doc_hash
     logger.debug(f"Data to sign (concatenated hashes) length: {len(data_to_sign)}")
 
@@ -182,27 +164,28 @@ def sign_credential_jsonld(
     proof_value = multibase.encode('base58btc', signature_bytes).decode('ascii')
     logger.debug(f"Encoded proofValue: {proof_value}")
 
-    # Final Credential Preparation
-    signed_credential = credential.copy()
-    # Ensure final contexts are present
-    final_contexts = signed_credential.get('@context', [])
-    if isinstance(final_contexts, str): final_contexts = [final_contexts]
-    if VC_JSONLD_CONTEXT_V1 not in final_contexts: final_contexts.append(VC_JSONLD_CONTEXT_V1)
-    if SECURITY_CONTEXT_V2 not in final_contexts: final_contexts.append(SECURITY_CONTEXT_V2)
-    signed_credential['@context'] = final_contexts
-    # Add the complete proof block
-    final_proof = proof_config.copy()
-    final_proof["proofValue"] = proof_value
-    signed_credential["proof"] = final_proof
+    proof_config_final = proof_config.copy()
+    proof_config_final["proofValue"] = proof_value
 
-    logger.info("Successfully signed JSON-LD credential (using manual proof hash).")
+    signed_credential = credential.copy()
+    main_contexts = signed_credential.get('@context', [])
+    if isinstance(main_contexts, str):
+        main_contexts = [main_contexts]
+    if VC_JSONLD_CONTEXT_V1 not in main_contexts:
+        main_contexts.append(VC_JSONLD_CONTEXT_V1)
+    if SECURITY_CONTEXT_V2 not in main_contexts:
+        main_contexts.append(SECURITY_CONTEXT_V2)
+    signed_credential['@context'] = main_contexts
+
+    signed_credential["proof"] = proof_config_final
+
+    logger.info("Successfully signed JSON-LD credential.")
     return signed_credential
 
 
 def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Verifies the Ed25519Signature2020 proof on a JSON-LD credential.
-    Uses manual N-Quads construction for proof normalization to bypass PyLD issues.
 
     Args:
         credential: The credential dictionary including the 'proof' block.
@@ -210,7 +193,7 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
     Returns:
         A tuple: (verified_status: bool, issuer_did: Optional[str], error_message: Optional[str])
     """
-    logger.info("Verifying JSON-LD credential proof (using manual proof hash).")
+    logger.info("Verifying JSON-LD credential proof.")
 
     if "proof" not in credential or not isinstance(credential["proof"], dict):
         return False, None, "Credential missing 'proof' block."
@@ -245,54 +228,47 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         return False, None, f"Failed to extract key or decode signature: {e}"
 
     try:
+        # Ensure credential has proper contexts for verification
         credential_to_verify = credential.copy()
-        proof_config_to_normalize = credential_to_verify.pop("proof").copy()
-        del proof_config_to_normalize["proofValue"] # Keep this line
+        contexts = credential_to_verify.get('@context', [])
+        if isinstance(contexts, str):
+            contexts = [contexts]
+        if VC_JSONLD_CONTEXT_V1 not in contexts:
+            contexts.append(VC_JSONLD_CONTEXT_V1)
+        if SECURITY_CONTEXT_V2 not in contexts:
+            contexts.append(SECURITY_CONTEXT_V2)
+        credential_to_verify['@context'] = contexts
+        
+        # Extract proof for separate verification
+        credential_to_normalize = credential_to_verify.copy()
+        proof_config_to_normalize = credential_to_normalize.pop("proof").copy()
+        del proof_config_to_normalize["proofValue"]
 
-        # --- Hashing ---
-        logger.debug("Computing proof hash for verification (MANUAL N-QUADS)")
-        try:
-            # Manually construct N-Quads for proof options
-            created_iri = "http://purl.org/dc/terms/created"
-            proof_purpose_iri = "https://w3id.org/security#proofPurpose"
-            proof_type_iri = "https://w3id.org/security#Ed25519Signature2020"
-            verification_method_iri = "https://w3id.org/security#verificationMethod"
-
-            proof_nquads = [
-                f'_:c14n0 <{created_iri}> "{proof_config_to_normalize["created"]}"^^<http://www.w3.org/2001/XMLSchema#dateTime> .',
-                f'_:c14n0 <{proof_purpose_iri}> <https://w3id.org/security#{proof_config_to_normalize["proofPurpose"]}> .',
-                f'_:c14n0 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <{proof_type_iri}> .',
-                f'_:c14n0 <{verification_method_iri}> <{proof_config_to_normalize["verificationMethod"]}> .',
-            ]
-            proof_nquads.sort()
-            normalized_proof_string = "\n".join(proof_nquads) + "\n"
-            logger.debug(f"Manually constructed N-Quads for proof verification:\n{normalized_proof_string}")
-
-            hasher_proof = hashes.Hash(hashes.SHA256())
-            hasher_proof.update(normalized_proof_string.encode('utf-8'))
-            proof_hash = hasher_proof.finalize()
-            logger.debug(f"Verification proof config hash (manual): {proof_hash.hex()}")
-
-        except Exception as e:
-            logger.error(">>> FAILED constructing/hashing manual N-Quads for PROOF verification <<<")
-            raise NormalizationError(f"Failed during manual proof normalization for verification: {e}")
+        # Ensure proof has context for verification
+        proof_norm_doc = proof_config_to_normalize.copy()
+        if '@context' not in proof_norm_doc:
+            proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
+        
+        logger.debug("Computing proof hash for verification")
+        proof_hash = _normalize_and_hash(proof_norm_doc)
+        logger.debug(f"Verification proof config hash: {proof_hash.hex()}")
 
         logger.debug("Computing document hash for verification")
-        # Normalize credential body using pyld
-        doc_hash = _normalize_and_hash(credential_to_verify) # Pass the doc with its context
+        doc_hash = _normalize_and_hash(credential_to_normalize)
         logger.debug(f"Verification credential doc hash: {doc_hash.hex()}")
 
         data_to_verify = proof_hash + doc_hash
         logger.debug(f"Data to verify (concatenated hashes) length: {len(data_to_verify)}")
-        
-        try:
-            public_key.verify(signature_bytes, data_to_verify)
-            logger.info("JSON-LD proof verification successful (using manual proof hash).")
-            return True, controller_did, None
-        except InvalidSignature:
-            logger.warning("Signature verification failed: InvalidSignature exception.")
-            return False, None, "Invalid signature."
-            
+
+        public_key.verify(signature_bytes, data_to_verify)
+
+        logger.info("JSON-LD proof verification successful.")
+        issuer_did = controller_did
+        return True, issuer_did, None
+
+    except InvalidSignature:
+        logger.warning("Signature verification failed: InvalidSignature exception.")
+        return False, None, "Invalid signature."
     except NormalizationError as e:
          logger.error(f"Verification failed due to normalization error: {e}")
          return False, None, f"Normalization error during verification: {e}"
