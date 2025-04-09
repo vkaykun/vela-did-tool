@@ -23,180 +23,57 @@ CONTEXTS = {
             "@protected": True,
             "id": "@id",
             "type": "@type",
-            "VerifiableCredential": {
-                "@id": "https://www.w3.org/2018/credentials#VerifiableCredential",
-                "@context": {
-                    "@version": 1.1,
-                    "@protected": True,
-                    "id": "@id",
-                    "type": "@type",
-                    "cred": "https://www.w3.org/2018/credentials#",
-                    "sec": "https://w3id.org/security#",
-                    "xsd": "http://www.w3.org/2001/XMLSchema#",
-                    "credentialSchema": {
-                        "@id": "cred:credentialSchema",
-                        "@type": "@id",
-                        "@context": {
-                            "@version": 1.1,
-                            "@protected": True,
-                            "id": "@id",
-                            "type": "@type",
-                            "cred": "https://www.w3.org/2018/credentials#",
-                            "JsonSchemaValidator2018": "cred:JsonSchemaValidator2018"
-                        }
-                    },
-                    "credentialStatus": {"@id": "cred:credentialStatus", "@type": "@id"},
-                    "credentialSubject": {"@id": "cred:credentialSubject", "@type": "@id"},
-                    "evidence": {"@id": "cred:evidence", "@type": "@id"},
-                    "expirationDate": {"@id": "cred:expirationDate", "@type": "xsd:dateTime"},
-                    "holder": {"@id": "cred:holder", "@type": "@id"},
-                    "issued": {"@id": "cred:issued", "@type": "xsd:dateTime"},
-                    "issuer": {"@id": "cred:issuer", "@type": "@id"},
-                    "issuanceDate": {"@id": "cred:issuanceDate", "@type": "xsd:dateTime"},
-                    "proof": {"@id": "sec:proof", "@type": "@id", "@container": "@graph"},
-                    "refreshService": {
-                        "@id": "cred:refreshService",
-                        "@type": "@id",
-                        "@context": {
-                            "@version": 1.1,
-                            "@protected": True,
-                            "id": "@id",
-                            "type": "@type",
-                            "cred": "https://www.w3.org/2018/credentials#",
-                            "ManualRefreshService2018": "cred:ManualRefreshService2018"
-                        }
-                    },
-                    "termsOfUse": {"@id": "cred:termsOfUse", "@type": "@id"},
-                    "validFrom": {"@id": "cred:validFrom", "@type": "xsd:dateTime"},
-                    "validUntil": {"@id": "cred:validUntil", "@type": "xsd:dateTime"}
-                }
-            },
-            "VerifiablePresentation": {
-                "@id": "https://www.w3.org/2018/credentials#VerifiablePresentation",
-                "@context": {
-                    "@version": 1.1,
-                    "@protected": True,
-                    "id": "@id",
-                    "type": "@type",
-                    "cred": "https://www.w3.org/2018/credentials#",
-                    "sec": "https://w3id.org/security#",
-                    "holder": {"@id": "cred:holder", "@type": "@id"},
-                    "proof": {"@id": "sec:proof", "@type": "@id", "@container": "@graph"},
-                    "verifiableCredential": {"@id": "cred:verifiableCredential", "@type": "@id", "@container": "@graph"}
-                }
-            },
-            "EcdsaSecp256k1Signature2019": {
-                "@id": "https://w3id.org/security#EcdsaSecp256k1Signature2019",
-                "@context": {
-                    "@version": 1.1,
-                    "@protected": True,
-                    "id": "@id",
-                    "type": "@type",
-                    "sec": "https://w3id.org/security#",
-                    "xsd": "http://www.w3.org/2001/XMLSchema#",
-                    "challenge": "sec:challenge",
-                    "created": {"@id": "http://purl.org/dc/terms/created", "@type": "xsd:dateTime"},
-                    "domain": "sec:domain",
-                    "expires": {"@id": "sec:expiration", "@type": "xsd:dateTime"},
-                    "jws": "sec:jws",
-                    "nonce": "sec:nonce",
-                    "proofPurpose": {
-                        "@id": "sec:proofPurpose",
-                        "@type": "@vocab",
-                        "@context": {
-                            "@version": 1.1,
-                            "@protected": True,
-                            "id": "@id",
-                            "type": "@type",
-                            "sec": "https://w3id.org/security#",
-                            "assertionMethod": {"@id": "sec:assertionMethod", "@type": "@id", "@container": "@set"},
-                            "authentication": {"@id": "sec:authenticationMethod", "@type": "@id", "@container": "@set"}
-                        }
-                    },
-                    "proofValue": "sec:proofValue",
-                    "verificationMethod": {"@id": "sec:verificationMethod", "@type": "@id"}
-                }
-            },
-            "Ed25519Signature2020": {
-                "@id": "https://w3id.org/security#Ed25519Signature2020",
-                "@context": {
-                    "@version": 1.1,
-                    "@protected": True,
-                    "id": "@id",
-                    "type": "@type",
-                    "sec": "https://w3id.org/security#",
-                    "xsd": "http://www.w3.org/2001/XMLSchema#",
-                    "challenge": "sec:challenge",
-                    "created": {"@id": "http://purl.org/dc/terms/created", "@type": "xsd:dateTime"},
-                    "domain": "sec:domain",
-                    "expires": {"@id": "sec:expiration", "@type": "xsd:dateTime"},
-                    "nonce": "sec:nonce",
-                    "proofPurpose": {
-                        "@id": "sec:proofPurpose",
-                        "@type": "@vocab",
-                        "@context": {
-                            "@version": 1.1,
-                            "@protected": True,
-                            "id": "@id",
-                            "type": "@type",
-                            "sec": "https://w3id.org/security#",
-                            "assertionMethod": {"@id": "sec:assertionMethod", "@type": "@id", "@container": "@set"},
-                            "authentication": {"@id": "sec:authenticationMethod", "@type": "@id", "@container": "@set"}
-                        }
-                    },
-                    "proofValue": "sec:proofValue",
-                    "verificationMethod": {"@id": "sec:verificationMethod", "@type": "@id"}
-                }
-            }
+            # Simplified definitions - rely on SECURITY_CONTEXT_V2 for proof details
+            "VerifiableCredential": {"@id": "https://www.w3.org/2018/credentials#VerifiableCredential"},
+            "VerifiablePresentation": {"@id": "https://www.w3.org/2018/credentials#VerifiablePresentation"},
+            "EcdsaSecp256k1Signature2019": {"@id": "https://w3id.org/security#EcdsaSecp256k1Signature2019"},
+            "Ed25519Signature2020": {"@id": "https://w3id.org/security#Ed25519Signature2020"}, # Simplified
+            # Keep term definitions needed for the VC data model itself
+            "cred": "https://www.w3.org/2018/credentials#",
+            "sec": "https://w3id.org/security#",
+            "xsd": "http://www.w3.org/2001/XMLSchema#",
+            "credentialSchema": {"@id": "cred:credentialSchema", "@type": "@id"},
+            "credentialStatus": {"@id": "cred:credentialStatus", "@type": "@id"},
+            "credentialSubject": {"@id": "cred:credentialSubject", "@type": "@id"},
+            "evidence": {"@id": "cred:evidence", "@type": "@id"},
+            "expirationDate": {"@id": "cred:expirationDate", "@type": "xsd:dateTime"},
+            "holder": {"@id": "cred:holder", "@type": "@id"},
+            "issued": {"@id": "cred:issued", "@type": "xsd:dateTime"},
+            "issuer": {"@id": "cred:issuer", "@type": "@id"},
+            "issuanceDate": {"@id": "cred:issuanceDate", "@type": "xsd:dateTime"},
+            "proof": {"@id": "sec:proof", "@type": "@id", "@container": "@graph"},
+            "refreshService": {"@id": "cred:refreshService", "@type": "@id"},
+            "termsOfUse": {"@id": "cred:termsOfUse", "@type": "@id"},
+            "validFrom": {"@id": "cred:validFrom", "@type": "xsd:dateTime"},
+            "validUntil": {"@id": "cred:validUntil", "@type": "xsd:dateTime"}
         }
     },
-    
+
     # Security Ed25519 2020 Context
     "https://w3id.org/security/suites/ed25519-2020/v1": {
         "@context": {
+            "@version": 1.1, # Added version for consistency
             "@protected": True,
             "id": "@id",
             "type": "@type",
             "sec": "https://w3id.org/security#",
             "xsd": "http://www.w3.org/2001/XMLSchema#",
-            "Ed25519VerificationKey2020": {
-                "@id": "https://w3id.org/security#Ed25519VerificationKey2020",
-                "@context": {
-                    "@protected": True,
-                    "id": "@id",
-                    "type": "@type",
-                    "controller": {"@id": "sec:controller", "@type": "@id"},
-                    "revoked": {"@id": "sec:revoked", "@type": "xsd:dateTime"},
-                    "publicKeyMultibase": {"@id": "sec:publicKeyMultibase"}
-                }
-            },
-            "Ed25519Signature2020": {
-                "@id": "https://w3id.org/security#Ed25519Signature2020",
-                "@context": {
-                    "@protected": True,
-                    "id": "@id",
-                    "type": "@type",
-                    "challenge": "sec:challenge",
-                    "created": {"@id": "http://purl.org/dc/terms/created", "@type": "xsd:dateTime"},
-                    "domain": "sec:domain",
-                    "expires": {"@id": "sec:expiration", "@type": "xsd:dateTime"},
-                    "nonce": "sec:nonce",
-                    "proofPurpose": {
-                        "@id": "sec:proofPurpose",
-                        "@type": "@vocab",
-                        "@context": {
-                            "@protected": True,
-                            "id": "@id",
-                            "type": "@type",
-                            "sec": "https://w3id.org/security#",
-                            "assertionMethod": {"@id": "sec:assertionMethod", "@type": "@id", "@container": "@set"},
-                            "authentication": {"@id": "sec:authenticationMethod", "@type": "@id", "@container": "@set"}
-                        }
-                    },
-                    "proofValue": "sec:proofValue",
-                    "verificationMethod": {"@id": "sec:verificationMethod", "@type": "@id"}
-                }
-            }
+            # Define terms used within the proof structure
+            "Ed25519VerificationKey2020": {"@id": "https://w3id.org/security#Ed25519VerificationKey2020"},
+            "Ed25519Signature2020": {"@id": "https://w3id.org/security#Ed25519Signature2020"},
+            "controller": {"@id": "sec:controller", "@type": "@id"},
+            "revoked": {"@id": "sec:revoked", "@type": "xsd:dateTime"},
+            "publicKeyMultibase": {"@id": "sec:publicKeyMultibase"},
+            "challenge": "sec:challenge",
+            "created": {"@id": "http://purl.org/dc/terms/created", "@type": "xsd:dateTime"},
+            "domain": "sec:domain",
+            "expires": {"@id": "sec:expiration", "@type": "xsd:dateTime"},
+            "nonce": "sec:nonce",
+            "proofPurpose": {"@id": "sec:proofPurpose", "@type": "@vocab"},
+            "proofValue": {"@id": "sec:proofValue"}, # Changed from sec:proofValue to @id
+            "verificationMethod": {"@id": "sec:verificationMethod", "@type": "@id"},
+            "assertionMethod": {"@id": "sec:assertionMethod", "@type": "@id", "@container": "@set"},
+            "authentication": {"@id": "sec:authenticationMethod", "@type": "@id", "@container": "@set"}
         }
     }
 }
@@ -243,8 +120,9 @@ def create_document_loader() -> Callable:
         )
         
         try:
-            options = kwargs.get('options', {}) 
-            return jsonld.load_document(url, options=options)
+            options = kwargs.get('options', {})
+            # Ensure the default loader is used for network fallback
+            return jsonld.load_document(url, options={'documentLoader': jsonld.requests_document_loader(), **options})
         except Exception as e:
             logger.error(f"Failed to load context from network: {url}, Error: {e}")
             raise jsonld.JsonLdError(
@@ -254,7 +132,7 @@ def create_document_loader() -> Callable:
                  url=url,
                  cause=e
             )
-    
+
     return document_loader
 
 default_document_loader = create_document_loader() 
