@@ -7,6 +7,7 @@ import logging
 import sys
 from typing import Dict, Any, Optional, List, Tuple, Union
 import os
+from pyld import __version__ as pyld_version
 
 from .did_utils import generate_did_key_ed25519, resolve_did, get_private_jwk_from_env
 from .vc_utils import sign_credential_jsonld, verify_credential_jsonld, sign_credential_jwt, verify_credential_jwt
@@ -263,6 +264,9 @@ def run(*args, **kwargs) -> Dict[str, Any]:
     Raises:
         VcError: If execution fails or required inputs are missing.
     """
+    logger.info(f"EXECUTING VELA-DID-TOOL")
+    logger.info(f"DETECTED PyLD VERSION: {pyld_version}")
+    
     logger.debug(f"Received args: {args}")
     logger.debug(f"Received kwargs: {kwargs}")
     
