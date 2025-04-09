@@ -75,15 +75,18 @@ def _normalize_and_hash(
     try:
         doc_copy = json.loads(json.dumps(doc))
         
+        original_context = doc_copy.pop('@context', None)
+        
         normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
         
-        if '@context' not in doc_copy:
-             logger.warning("Document missing @context, assuming VC context v1 for normalization.")
-             doc_copy['@context'] = VC_JSONLD_CONTEXT_V1
-
-        logger.debug(f"Normalizing document with contexts: {doc_copy.get('@context', [])}")
+        doc_copy['@context'] = VC_JSONLD_CONTEXT_V1
+        
+        logger.debug(f"Normalizing document with minimal context")
         normalized_doc = jsonld.normalize(doc_copy, normalize_options)
         
+        if original_context is not None:
+            doc_copy['@context'] = original_context
+            
         logger.debug(f"Normalized Document (first 100 chars): {normalized_doc[:100]}")
         hasher = hashes.Hash(hashes.SHA256())
         hasher.update(normalized_doc.encode('utf-8'))
@@ -129,7 +132,6 @@ def sign_credential_jsonld(
     credential_no_proof, proof_config = _prepare_ld_proof_components(credential, proof_options)
     
     proof_norm_doc = proof_config.copy()
-    proof_norm_doc['@context'] = VC_JSONLD_CONTEXT_V1  
     
     proof_hash = _normalize_and_hash(proof_norm_doc)
     logger.debug(f"Proof config hash: {proof_hash.hex()}")
@@ -218,20 +220,10 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         proof_config_to_normalize = credential_to_normalize.pop("proof").copy()
         del proof_config_to_normalize["proofValue"]
 
-        # For verification normalization, use the same approach as signing
         proof_norm_doc = proof_config_to_normalize.copy()
-        proof_norm_doc['@context'] = VC_JSONLD_CONTEXT_V1  # Use just the VC context
-
+        
         proof_hash = _normalize_and_hash(proof_norm_doc)
         logger.debug(f"Verification proof config hash: {proof_hash.hex()}")
-
-        # Ensure the main credential has context for normalization
-        main_contexts = credential_to_normalize.get('@context', [])
-        if isinstance(main_contexts, str):
-            main_contexts = [main_contexts]
-        if VC_JSONLD_CONTEXT_V1 not in main_contexts:
-             main_contexts.append(VC_JSONLD_CONTEXT_V1)
-        credential_to_normalize['@context'] = main_contexts
 
         doc_hash = _normalize_and_hash(credential_to_normalize)
         logger.debug(f"Verification credential doc hash: {doc_hash.hex()}")
