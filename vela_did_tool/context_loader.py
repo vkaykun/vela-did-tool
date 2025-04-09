@@ -27,11 +27,12 @@ CONTEXTS = {
             "VerifiableCredential": {"@id": "https://www.w3.org/2018/credentials#VerifiableCredential"},
             "VerifiablePresentation": {"@id": "https://www.w3.org/2018/credentials#VerifiablePresentation"},
             "EcdsaSecp256k1Signature2019": {"@id": "https://w3id.org/security#EcdsaSecp256k1Signature2019"},
-            "Ed25519Signature2020": {"@id": "https://w3id.org/security#Ed25519Signature2020"}, # Simplified
-            # Keep term definitions needed for the VC data model itself
-            "cred": "https://www.w3.org/2018/credentials#",
-            "sec": "https://w3id.org/security#",
-            "xsd": "http://www.w3.org/2001/XMLSchema#",
+            "Ed25519Signature2020": {"@id": "https://w3id.org/security#Ed25519Signature2020"},
+            # Expanded definitions for prefixes
+            "cred": {"@id": "https://www.w3.org/2018/credentials#"},
+            "sec": {"@id": "https://w3id.org/security#"},
+            "xsd": {"@id": "http://www.w3.org/2001/XMLSchema#"},
+            # Property definitions
             "credentialSchema": {"@id": "cred:credentialSchema", "@type": "@id"},
             "credentialStatus": {"@id": "cred:credentialStatus", "@type": "@id"},
             "credentialSubject": {"@id": "cred:credentialSubject", "@type": "@id"},
@@ -52,25 +53,26 @@ CONTEXTS = {
     # Security Ed25519 2020 Context
     "https://w3id.org/security/suites/ed25519-2020/v1": {
         "@context": {
-            "@version": 1.1, # Added version for consistency
+            "@version": 1.1,
             "@protected": True,
             "id": "@id",
             "type": "@type",
-            "sec": "https://w3id.org/security#",
-            "xsd": "http://www.w3.org/2001/XMLSchema#",
+            # Expanded definitions for prefixes
+            "sec": {"@id": "https://w3id.org/security#"},
+            "xsd": {"@id": "http://www.w3.org/2001/XMLSchema#"},
             # Define terms used within the proof structure
             "Ed25519VerificationKey2020": {"@id": "https://w3id.org/security#Ed25519VerificationKey2020"},
             "Ed25519Signature2020": {"@id": "https://w3id.org/security#Ed25519Signature2020"},
             "controller": {"@id": "sec:controller", "@type": "@id"},
             "revoked": {"@id": "sec:revoked", "@type": "xsd:dateTime"},
             "publicKeyMultibase": {"@id": "sec:publicKeyMultibase"},
-            "challenge": "sec:challenge",
+            "challenge": {"@id": "sec:challenge"},
             "created": {"@id": "http://purl.org/dc/terms/created", "@type": "xsd:dateTime"},
-            "domain": "sec:domain",
+            "domain": {"@id": "sec:domain"},
             "expires": {"@id": "sec:expiration", "@type": "xsd:dateTime"},
-            "nonce": "sec:nonce",
+            "nonce": {"@id": "sec:nonce"},
             "proofPurpose": {"@id": "sec:proofPurpose", "@type": "@vocab"},
-            "proofValue": {"@id": "sec:proofValue"}, # Changed from sec:proofValue to @id
+            "proofValue": {"@id": "sec:proofValue"},
             "verificationMethod": {"@id": "sec:verificationMethod", "@type": "@id"},
             "assertionMethod": {"@id": "sec:assertionMethod", "@type": "@id", "@container": "@set"},
             "authentication": {"@id": "sec:authenticationMethod", "@type": "@id", "@container": "@set"}
