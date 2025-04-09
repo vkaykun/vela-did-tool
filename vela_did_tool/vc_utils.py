@@ -77,16 +77,30 @@ def _normalize_and_hash(
         
         original_context = doc_copy.pop('@context', None)
         
+        def remove_contexts(obj):
+            if isinstance(obj, dict):
+                if '@context' in obj:
+                    del obj['@context']
+                for key, value in list(obj.items()):
+                    remove_contexts(value)
+            elif isinstance(obj, list):
+                for item in obj:
+                    remove_contexts(item)
+    
+        remove_contexts(doc_copy)
+        
+        if "proofPurpose" in doc_copy or "verificationMethod" in doc_copy:
+            doc_copy['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
+            logger.debug("Applied proof-specific contexts for normalization")
+        else:
+            doc_copy['@context'] = VC_JSONLD_CONTEXT_V1
+            logger.debug("Applied credential context for normalization")
+        
         normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
         
-        doc_copy['@context'] = VC_JSONLD_CONTEXT_V1
-        
-        logger.debug(f"Normalizing document with minimal context")
+        logger.debug(f"Normalizing document with type-appropriate context")
         normalized_doc = jsonld.normalize(doc_copy, normalize_options)
         
-        if original_context is not None:
-            doc_copy['@context'] = original_context
-            
         logger.debug(f"Normalized Document (first 100 chars): {normalized_doc[:100]}")
         hasher = hashes.Hash(hashes.SHA256())
         hasher.update(normalized_doc.encode('utf-8'))
@@ -133,9 +147,11 @@ def sign_credential_jsonld(
     
     proof_norm_doc = proof_config.copy()
     
+    logger.debug("Computing proof hash for signing")
     proof_hash = _normalize_and_hash(proof_norm_doc)
     logger.debug(f"Proof config hash: {proof_hash.hex()}")
     
+    logger.debug("Computing document hash for signing")
     doc_hash = _normalize_and_hash(credential_no_proof)
     logger.debug(f"Credential doc hash: {doc_hash.hex()}")
     
@@ -222,9 +238,11 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
 
         proof_norm_doc = proof_config_to_normalize.copy()
         
+        logger.debug("Computing proof hash for verification")
         proof_hash = _normalize_and_hash(proof_norm_doc)
         logger.debug(f"Verification proof config hash: {proof_hash.hex()}")
 
+        logger.debug("Computing document hash for verification")
         doc_hash = _normalize_and_hash(credential_to_normalize)
         logger.debug(f"Verification credential doc hash: {doc_hash.hex()}")
 
