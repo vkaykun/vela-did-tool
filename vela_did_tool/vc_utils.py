@@ -33,8 +33,6 @@ logger = logging.getLogger(__name__)
 
 def _prepare_ld_proof_components(
     credential: Dict[str, Any],
-def _prepare_ld_proof_components(
-    credential: Dict[str, Any],
     proof_options: Dict[str, Any]
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Separates proof from credential and prepares proof options."""
@@ -54,18 +52,17 @@ def _prepare_ld_proof_components(
     if "verificationMethod" not in proof_config:
         raise VcError("Missing 'verificationMethod' in proof options for signing.")
 
-    # Ensure context includes security context if using Ed25519Signature2020
-    if proof_config["type"] == "Ed25519Signature2020":
-        contexts = credential_no_proof.get('@context', [])
-        if isinstance(contexts, str):
-            contexts = [contexts]
-        if SECURITY_CONTEXT_V2 not in contexts:
-             # Add the security context needed for this proof type
-             logger.debug(f"Adding security context {SECURITY_CONTEXT_V2} for signing.")
-             credential_no_proof['@context'] = contexts + [SECURITY_CONTEXT_V2]
-             # Also add to proof options context if needed for normalization
-             proof_config['@context'] = proof_config.get('@context', []) + [SECURITY_CONTEXT_V2]
-
+    # FIXED: Don't add security context to credential as it causes protected term redefinition
+    # The security context will be handled by the document loader
+    
+    # The original code tried to add contexts to both credential and proof, causing conflicts:
+    # if proof_config["type"] == "Ed25519Signature2020":
+    #    contexts = credential_no_proof.get('@context', [])
+    #    if isinstance(contexts, str):
+    #        contexts = [contexts]
+    #    if SECURITY_CONTEXT_V2 not in contexts:
+    #         credential_no_proof['@context'] = contexts + [SECURITY_CONTEXT_V2]
+    #         proof_config['@context'] = proof_config.get('@context', []) + [SECURITY_CONTEXT_V2]
 
     return credential_no_proof, proof_config
 
@@ -89,10 +86,13 @@ def _normalize_and_hash(
         NormalizationError: If normalization fails
     """
     try:
-        normalized_doc = jsonld.normalize(
-            doc,
-            {**JSONLD_OPTIONS, 'documentLoader': document_loader}
-        )
+        # Ensure that the document loader is explicitly set and used for normalization
+        # This is critical for properly resolving contexts without conflicts
+        normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
+        
+        logger.debug(f"Normalizing document with contexts: {doc.get('@context', [])}")
+        normalized_doc = jsonld.normalize(doc, normalize_options)
+        
         logger.debug(f"Normalized Document (first 100 chars): {normalized_doc[:100]}")
         hasher = hashes.Hash(hashes.SHA256())
         hasher.update(normalized_doc.encode('utf-8'))
@@ -218,14 +218,18 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         proof_config_to_normalize = credential_to_normalize.pop("proof").copy()
         del proof_config_to_normalize["proofValue"]
 
-        if proof["type"] == "Ed25519Signature2020":
-            contexts = credential_to_normalize.get('@context', [])
-            if isinstance(contexts, str):
-                contexts = [contexts]
-            if SECURITY_CONTEXT_V2 not in contexts:
-                logger.debug(f"Adding security context {SECURITY_CONTEXT_V2} for verification normalization.")
-                credential_to_normalize['@context'] = contexts + [SECURITY_CONTEXT_V2]
-                proof_config_to_normalize['@context'] = proof_config_to_normalize.get('@context', []) + [SECURITY_CONTEXT_V2]
+        # FIXED: Don't add security context to credential as it causes protected term redefinition
+        # The security context will be handled by the document loader
+        
+        # The original code tried to add contexts during verification, causing the same conflicts:
+        # if proof["type"] == "Ed25519Signature2020":
+        #    contexts = credential_to_normalize.get('@context', [])
+        #    if isinstance(contexts, str):
+        #        contexts = [contexts]
+        #    if SECURITY_CONTEXT_V2 not in contexts:
+        #        logger.debug(f"Adding security context {SECURITY_CONTEXT_V2} for verification normalization.")
+        #        credential_to_normalize['@context'] = contexts + [SECURITY_CONTEXT_V2]
+        #        proof_config_to_normalize['@context'] = proof_config_to_normalize.get('@context', []) + [SECURITY_CONTEXT_V2]
 
 
         proof_hash = _normalize_and_hash(proof_config_to_normalize)
