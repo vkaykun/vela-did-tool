@@ -39,7 +39,7 @@ def _prepare_ld_proof_components(
     credential_no_proof = credential.copy()
     existing_proof = credential_no_proof.pop("proof", None)
     if existing_proof and "proofValue" in proof_options:
-         del proof_options["proofValue"]
+        del proof_options["proofValue"]
 
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     proof_config = {
@@ -56,7 +56,7 @@ def _prepare_ld_proof_components(
 
 def _normalize_and_hash(
     doc: Dict[str, Any],
-    document_loader=default_document_loader  
+    document_loader=default_document_loader
 ) -> bytes:
     """
     Normalizes a JSON-LD document and returns its SHA-256 hash.
@@ -73,10 +73,12 @@ def _normalize_and_hash(
         NormalizationError: If normalization fails
     """
     try:
+        doc_copy = json.loads(json.dumps(doc))
+        
         normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
         
-        logger.debug(f"Normalizing document with contexts: {doc.get('@context', [])}")
-        normalized_doc = jsonld.normalize(doc, normalize_options)
+        logger.debug(f"Normalizing document with contexts: {doc_copy.get('@context', [])}")
+        normalized_doc = jsonld.normalize(doc_copy, normalize_options)
         
         logger.debug(f"Normalized Document (first 100 chars): {normalized_doc[:100]}")
         hasher = hashes.Hash(hashes.SHA256())
@@ -120,12 +122,22 @@ def sign_credential_jsonld(
     except Exception as e:
         raise InvalidKeyFormatError(f"Failed to load private key from JWK: {e}")
   
-    credential_to_normalize, proof_config = _prepare_ld_proof_components(credential, proof_options)
+    credential_no_proof, proof_config = _prepare_ld_proof_components(credential, proof_options)
 
-    proof_hash = _normalize_and_hash(proof_config)
+    proof_norm_doc = proof_config.copy()
+    if '@context' not in proof_norm_doc:
+        proof_norm_doc['@context'] = [SECURITY_CONTEXT_V2]
+    elif isinstance(proof_norm_doc['@context'], str):
+        proof_norm_doc['@context'] = [proof_norm_doc['@context'], SECURITY_CONTEXT_V2]
+    elif SECURITY_CONTEXT_V2 not in proof_norm_doc['@context']:
+        proof_norm_doc['@context'] = list(proof_norm_doc['@context']) + [SECURITY_CONTEXT_V2]
+    
+    proof_hash = _normalize_and_hash(proof_norm_doc)
     logger.debug(f"Proof config hash: {proof_hash.hex()}")
-    doc_hash = _normalize_and_hash(credential_to_normalize)
+    
+    doc_hash = _normalize_and_hash(credential_no_proof)
     logger.debug(f"Credential doc hash: {doc_hash.hex()}")
+    
     data_to_sign = proof_hash + doc_hash
     logger.debug(f"Data to sign (concatenated hashes) length: {len(data_to_sign)}")
 
@@ -143,11 +155,6 @@ def sign_credential_jsonld(
     proof_config_final["proofValue"] = proof_value
 
     signed_credential = credential.copy()
-    if '@context' in proof_config_final and SECURITY_CONTEXT_V2 in proof_config_final['@context']:
-         proof_config_final['@context'].remove(SECURITY_CONTEXT_V2)
-         if not proof_config_final['@context']:
-              del proof_config_final['@context']
-
     signed_credential["proof"] = proof_config_final
 
     logger.info("Successfully signed JSON-LD credential.")
@@ -192,7 +199,7 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         if not proof_value_encoded.startswith(MULTIBASE_BASE58BTC_PREFIX):
              raise VcError(f"Proof value does not start with expected multibase prefix '{MULTIBASE_BASE58BTC_PREFIX}'.")
         signature_bytes = multibase.decode(proof_value_encoded)
-        logger.debug(f"Decoded signature length: {len(signature_bytes)}")
+        logger.debug(f"Decoded signature length: {len(signature_bytes)}") 
 
     except Exception as e:
         logger.error(f"Failed to prepare for verification: {e}")
@@ -203,7 +210,15 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         proof_config_to_normalize = credential_to_normalize.pop("proof").copy()
         del proof_config_to_normalize["proofValue"]
 
-        proof_hash = _normalize_and_hash(proof_config_to_normalize)
+        proof_norm_doc = proof_config_to_normalize.copy()
+        if '@context' not in proof_norm_doc:
+            proof_norm_doc['@context'] = [SECURITY_CONTEXT_V2]
+        elif isinstance(proof_norm_doc['@context'], str):
+            proof_norm_doc['@context'] = [proof_norm_doc['@context'], SECURITY_CONTEXT_V2]
+        elif SECURITY_CONTEXT_V2 not in proof_norm_doc['@context']:
+            proof_norm_doc['@context'] = list(proof_norm_doc['@context']) + [SECURITY_CONTEXT_V2]
+
+        proof_hash = _normalize_and_hash(proof_norm_doc)
         logger.debug(f"Verification proof config hash: {proof_hash.hex()}")
 
         doc_hash = _normalize_and_hash(credential_to_normalize)
