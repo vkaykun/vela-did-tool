@@ -46,30 +46,17 @@ def _prepare_ld_proof_components(
         "type": DEFAULT_PROOF_TYPE,
         "created": now,
         "proofPurpose": DEFAULT_PROOF_PURPOSE,
-        # verificationMethod must be provided in proof_options
-        **proof_options # User options override defaults
+        **proof_options 
     }
     if "verificationMethod" not in proof_config:
         raise VcError("Missing 'verificationMethod' in proof options for signing.")
-
-    # FIXED: Don't add security context to credential as it causes protected term redefinition
-    # The security context will be handled by the document loader
-    
-    # The original code tried to add contexts to both credential and proof, causing conflicts:
-    # if proof_config["type"] == "Ed25519Signature2020":
-    #    contexts = credential_no_proof.get('@context', [])
-    #    if isinstance(contexts, str):
-    #        contexts = [contexts]
-    #    if SECURITY_CONTEXT_V2 not in contexts:
-    #         credential_no_proof['@context'] = contexts + [SECURITY_CONTEXT_V2]
-    #         proof_config['@context'] = proof_config.get('@context', []) + [SECURITY_CONTEXT_V2]
 
     return credential_no_proof, proof_config
 
 
 def _normalize_and_hash(
     doc: Dict[str, Any],
-    document_loader=default_document_loader  # Default to our offline-friendly loader
+    document_loader=default_document_loader  
 ) -> bytes:
     """
     Normalizes a JSON-LD document and returns its SHA-256 hash.
@@ -86,8 +73,6 @@ def _normalize_and_hash(
         NormalizationError: If normalization fails
     """
     try:
-        # Ensure that the document loader is explicitly set and used for normalization
-        # This is critical for properly resolving contexts without conflicts
         normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
         
         logger.debug(f"Normalizing document with contexts: {doc.get('@context', [])}")
@@ -218,20 +203,6 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         proof_config_to_normalize = credential_to_normalize.pop("proof").copy()
         del proof_config_to_normalize["proofValue"]
 
-        # FIXED: Don't add security context to credential as it causes protected term redefinition
-        # The security context will be handled by the document loader
-        
-        # The original code tried to add contexts during verification, causing the same conflicts:
-        # if proof["type"] == "Ed25519Signature2020":
-        #    contexts = credential_to_normalize.get('@context', [])
-        #    if isinstance(contexts, str):
-        #        contexts = [contexts]
-        #    if SECURITY_CONTEXT_V2 not in contexts:
-        #        logger.debug(f"Adding security context {SECURITY_CONTEXT_V2} for verification normalization.")
-        #        credential_to_normalize['@context'] = contexts + [SECURITY_CONTEXT_V2]
-        #        proof_config_to_normalize['@context'] = proof_config_to_normalize.get('@context', []) + [SECURITY_CONTEXT_V2]
-
-
         proof_hash = _normalize_and_hash(proof_config_to_normalize)
         logger.debug(f"Verification proof config hash: {proof_hash.hex()}")
 
@@ -256,9 +227,6 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
     except Exception as e:
         logger.exception("An unexpected error occurred during verification.")
         return False, None, f"Verification failed: {e}"
-
-
-# --- JWT VC Handling ---
 
 def sign_credential_jwt(
     claims: Dict[str, Any],
@@ -287,7 +255,6 @@ def sign_credential_jwt(
         raise VcError(f"JWT claims must include 'iss' field matching the issuer_did '{issuer_did}'.")
 
     try:
-        # Load JWK using jwcrypto
         key = jwk.JWK(**private_jwk)
         if key.key_type != 'OKP' or key['crv'] != 'Ed25519':
              raise InvalidKeyFormatError("JWK must be of type OKP with curve Ed25519.")
@@ -295,8 +262,6 @@ def sign_credential_jwt(
         raise InvalidKeyFormatError(f"Failed to load private JWK: {e}")
 
     try:
-        # Create JWS token
-        # Header specifies EdDSA algorithm (for Ed25519)
         protected_header = {"alg": "EdDSA", "typ": "JWT"}
         jws_token = jws.JWS(json.dumps(claims).encode('utf-8'))
         jws_token.add_signature(key, None, json.dumps(protected_header))
