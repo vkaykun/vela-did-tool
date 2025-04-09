@@ -60,6 +60,7 @@ def _normalize_and_hash(
 ) -> bytes:
     """
     Normalizes a JSON-LD document and returns its SHA-256 hash.
+    Uses expandContext option instead of embedding @context in the doc.
     
     Args:
         doc: The JSON-LD document to normalize
@@ -76,10 +77,25 @@ def _normalize_and_hash(
         # Create a deep copy to avoid modifying the original document
         doc_copy = json.loads(json.dumps(doc))
 
-        # Directly use the input document with the default loader
-        normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
+        # Extract and remove the @context from the document copy
+        context_to_expand = doc_copy.pop('@context', None)
+        if context_to_expand is None:
+             # Attempt to infer required contexts if not present (fallback)
+             logger.warning("Document missing @context for normalization, attempting to infer.")
+             if "proofPurpose" in doc_copy or "verificationMethod" in doc_copy:
+                 context_to_expand = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
+             else:
+                 context_to_expand = VC_JSONLD_CONTEXT_V1  # Assume base VC context
+
+        # Pass the extracted context via options
+        normalize_options = {
+            **JSONLD_OPTIONS,
+            'documentLoader': document_loader,
+            'expandContext': context_to_expand  # Use expandContext option
+        }
         
-        logger.debug(f"Normalizing document using default loader")
+        logger.debug(f"Normalizing document using expandContext: {context_to_expand}")
+        # Pass the document *without* the @context key
         normalized_doc = jsonld.normalize(doc_copy, normalize_options)
         
         logger.debug(f"Normalized Document (first 100 chars): {normalized_doc[:100]}")
@@ -128,26 +144,30 @@ def sign_credential_jsonld(
     # Ensure credential has the necessary contexts before processing
     credential_with_contexts = credential.copy()
     main_contexts = credential_with_contexts.get('@context', [])
-    if isinstance(main_contexts, str):
-        main_contexts = [main_contexts]
-    if VC_JSONLD_CONTEXT_V1 not in main_contexts:
-        main_contexts.append(VC_JSONLD_CONTEXT_V1)
-    if SECURITY_CONTEXT_V2 not in main_contexts:
-        main_contexts.append(SECURITY_CONTEXT_V2)
+    if isinstance(main_contexts, str): main_contexts = [main_contexts]
+    if VC_JSONLD_CONTEXT_V1 not in main_contexts: main_contexts.append(VC_JSONLD_CONTEXT_V1)
+    if SECURITY_CONTEXT_V2 not in main_contexts: main_contexts.append(SECURITY_CONTEXT_V2)
     credential_with_contexts['@context'] = main_contexts
   
     credential_no_proof, proof_config = _prepare_ld_proof_components(credential_with_contexts, proof_options)
     
-    # Ensure proof config also has necessary contexts
+    # Ensure proof config has contexts
     proof_norm_doc = proof_config.copy()
     if '@context' not in proof_norm_doc:
         proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
+    elif isinstance(proof_norm_doc['@context'], list):
+         if VC_JSONLD_CONTEXT_V1 not in proof_norm_doc['@context']: proof_norm_doc['@context'].append(VC_JSONLD_CONTEXT_V1)
+         if SECURITY_CONTEXT_V2 not in proof_norm_doc['@context']: proof_norm_doc['@context'].append(SECURITY_CONTEXT_V2)
+    elif isinstance(proof_norm_doc['@context'], str):
+         proof_norm_doc['@context'] = [proof_norm_doc['@context'], VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
     
     logger.debug("Computing proof hash for signing")
+    # _normalize_and_hash will now remove @context and use expandContext
     proof_hash = _normalize_and_hash(proof_norm_doc)
     logger.debug(f"Proof config hash: {proof_hash.hex()}")
     
     logger.debug("Computing document hash for signing")
+    # _normalize_and_hash will now remove @context and use expandContext
     doc_hash = _normalize_and_hash(credential_no_proof)
     logger.debug(f"Credential doc hash: {doc_hash.hex()}")
     
@@ -167,16 +187,13 @@ def sign_credential_jsonld(
     proof_config_final = proof_config.copy()
     proof_config_final["proofValue"] = proof_value
 
-    signed_credential = credential.copy()
-    main_contexts = signed_credential.get('@context', [])
-    if isinstance(main_contexts, str):
-        main_contexts = [main_contexts]
-    if VC_JSONLD_CONTEXT_V1 not in main_contexts:
-        main_contexts.append(VC_JSONLD_CONTEXT_V1)
-    if SECURITY_CONTEXT_V2 not in main_contexts:
-        main_contexts.append(SECURITY_CONTEXT_V2)
-    signed_credential['@context'] = main_contexts
-
+    # Return the final credential WITH the contexts
+    signed_credential = credential.copy() # Start fresh
+    final_contexts = signed_credential.get('@context', [])
+    if isinstance(final_contexts, str): final_contexts = [final_contexts]
+    if VC_JSONLD_CONTEXT_V1 not in final_contexts: final_contexts.append(VC_JSONLD_CONTEXT_V1)
+    if SECURITY_CONTEXT_V2 not in final_contexts: final_contexts.append(SECURITY_CONTEXT_V2)
+    signed_credential['@context'] = final_contexts
     signed_credential["proof"] = proof_config_final
 
     logger.info("Successfully signed JSON-LD credential.")
@@ -231,12 +248,9 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         # Ensure credential has proper contexts for verification
         credential_to_verify = credential.copy()
         contexts = credential_to_verify.get('@context', [])
-        if isinstance(contexts, str):
-            contexts = [contexts]
-        if VC_JSONLD_CONTEXT_V1 not in contexts:
-            contexts.append(VC_JSONLD_CONTEXT_V1)
-        if SECURITY_CONTEXT_V2 not in contexts:
-            contexts.append(SECURITY_CONTEXT_V2)
+        if isinstance(contexts, str): contexts = [contexts]
+        if VC_JSONLD_CONTEXT_V1 not in contexts: contexts.append(VC_JSONLD_CONTEXT_V1)
+        if SECURITY_CONTEXT_V2 not in contexts: contexts.append(SECURITY_CONTEXT_V2)
         credential_to_verify['@context'] = contexts
         
         # Extract proof for separate verification
@@ -248,27 +262,31 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         proof_norm_doc = proof_config_to_normalize.copy()
         if '@context' not in proof_norm_doc:
             proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
+        elif isinstance(proof_norm_doc['@context'], list):
+             if VC_JSONLD_CONTEXT_V1 not in proof_norm_doc['@context']: proof_norm_doc['@context'].append(VC_JSONLD_CONTEXT_V1)
+             if SECURITY_CONTEXT_V2 not in proof_norm_doc['@context']: proof_norm_doc['@context'].append(SECURITY_CONTEXT_V2)
+        elif isinstance(proof_norm_doc['@context'], str):
+             proof_norm_doc['@context'] = [proof_norm_doc['@context'], VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
         
         logger.debug("Computing proof hash for verification")
         proof_hash = _normalize_and_hash(proof_norm_doc)
-        logger.debug(f"Verification proof config hash: {proof_hash.hex()}")
-
+        logger.debug(f"Proof config hash: {proof_hash.hex()}")
+        
         logger.debug("Computing document hash for verification")
         doc_hash = _normalize_and_hash(credential_to_normalize)
-        logger.debug(f"Verification credential doc hash: {doc_hash.hex()}")
-
+        logger.debug(f"Credential doc hash: {doc_hash.hex()}")
+        
         data_to_verify = proof_hash + doc_hash
         logger.debug(f"Data to verify (concatenated hashes) length: {len(data_to_verify)}")
-
-        public_key.verify(signature_bytes, data_to_verify)
-
-        logger.info("JSON-LD proof verification successful.")
-        issuer_did = controller_did
-        return True, issuer_did, None
-
-    except InvalidSignature:
-        logger.warning("Signature verification failed: InvalidSignature exception.")
-        return False, None, "Invalid signature."
+        
+        try:
+            public_key.verify(signature_bytes, data_to_verify)
+            logger.info("Signature verification succeeded")
+            return True, controller_did, None
+        except InvalidSignature:
+            logger.error("Signature verification failed - invalid signature")
+            return False, None, "Invalid signature."
+        
     except NormalizationError as e:
          logger.error(f"Verification failed due to normalization error: {e}")
          return False, None, f"Normalization error during verification: {e}"
