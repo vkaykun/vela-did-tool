@@ -5,7 +5,7 @@
 import json
 import logging
 import datetime
-from typing import Dict, Any, Optional, Tuple, Union
+from typing import Dict, Any, Optional, Tuple, Union, List
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -56,14 +56,15 @@ def _prepare_ld_proof_components(
 
 def _normalize_and_hash(
     doc: Dict[str, Any],
+    required_context: Union[str, List[str]],
     document_loader=default_document_loader
 ) -> bytes:
     """
-    Normalizes a JSON-LD document (assuming it has @context)
-    and returns its SHA-256 hash.
+    Normalizes a JSON-LD document using expandContext.
     
     Args:
         doc: The JSON-LD document to normalize
+        required_context: Context URL(s) to use for normalization (passed via expandContext)
         document_loader: Optional custom document loader. Defaults to the 
                          offline-friendly loader that has common contexts bundled.
                          
@@ -74,10 +75,19 @@ def _normalize_and_hash(
         NormalizationError: If normalization fails
     """
     try:
-        # Use the document as-is, assuming it has the correct context
-        normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
-        logger.debug(f"Normalizing document using default loader")
-        normalized_doc = jsonld.normalize(doc, normalize_options) # Pass doc directly
+        doc_copy = json.loads(json.dumps(doc))
+        # Remove any existing context from the doc itself
+        doc_copy.pop('@context', None)
+
+        # Use the explicitly provided context via expandContext
+        normalize_options = {
+            **JSONLD_OPTIONS,
+            'documentLoader': document_loader,
+            'expandContext': required_context  # Use the passed context
+        }
+
+        logger.debug(f"Normalizing document using explicit expandContext: {required_context}")
+        normalized_doc = jsonld.normalize(doc_copy, normalize_options)
 
         logger.debug(f"Normalized Document (first 100 chars): {normalized_doc[:100]}")
         hasher = hashes.Hash(hashes.SHA256())
@@ -95,7 +105,6 @@ def sign_credential_jsonld(
 ) -> Dict[str, Any]:
     """
     Signs a JSON-LD credential using the Ed25519Signature2020 suite.
-    MODIFIED: Normalizes the whole document + proof (minus proofValue).
 
     Args:
         credential: The credential document (dict) to sign.
@@ -122,43 +131,31 @@ def sign_credential_jsonld(
     except Exception as e:
         raise InvalidKeyFormatError(f"Failed to load private key from JWK: {e}")
     
-    # Prepare the proof block (without proofValue initially)
-    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    proof_config = {
-        "type": DEFAULT_PROOF_TYPE,
-        "created": now,
-        "proofPurpose": DEFAULT_PROOF_PURPOSE,
-        **proof_options # Includes verificationMethod
-    }
-    if "verificationMethod" not in proof_config:
-        raise VcError("Missing 'verificationMethod' in proof options.")
+    # Prepare credential and proof config (without modifying their internal @context yet)
+    credential_no_proof, proof_config = _prepare_ld_proof_components(credential, proof_options)
+    proof_norm_doc = proof_config.copy()
 
-    # Create the document to be normalized
-    # Start with a copy of the original credential
-    doc_to_normalize = credential.copy()
-    # Remove any existing proof block just in case
-    doc_to_normalize.pop("proof", None)
-    # Add the prepared proof block (without proofValue)
-    doc_to_normalize["proof"] = proof_config
+    # --- Hashing ---
+    logger.debug("Computing proof hash for signing")
+    # Normalize proof using ONLY the security context
+    proof_hash = _normalize_and_hash(proof_norm_doc, required_context=SECURITY_CONTEXT_V2)
+    logger.debug(f"Proof config hash: {proof_hash.hex()}")
 
-    # Ensure the combined document has the necessary contexts
-    main_contexts = doc_to_normalize.get('@context', [])
-    if isinstance(main_contexts, str): main_contexts = [main_contexts]
-    if VC_JSONLD_CONTEXT_V1 not in main_contexts: main_contexts.append(VC_JSONLD_CONTEXT_V1)
-    if SECURITY_CONTEXT_V2 not in main_contexts: main_contexts.append(SECURITY_CONTEXT_V2)
-    doc_to_normalize['@context'] = main_contexts
+    logger.debug("Computing document hash for signing")
+    # Normalize credential body using ONLY the VC context (and any others it declared)
+    cred_contexts = credential_no_proof.get('@context', [])
+    if isinstance(cred_contexts, str): cred_contexts = [cred_contexts]
+    if VC_JSONLD_CONTEXT_V1 not in cred_contexts: cred_contexts.append(VC_JSONLD_CONTEXT_V1)
+    # Pass the original/intended contexts for the credential body
+    doc_hash = _normalize_and_hash(credential_no_proof, required_context=cred_contexts)
+    logger.debug(f"Credential doc hash: {doc_hash.hex()}")
 
-    logger.debug("Computing hash of combined document + proof (no proofValue)")
-    # Normalize and hash the combined document
-    combined_hash = _normalize_and_hash(doc_to_normalize)
-    logger.debug(f"Combined hash: {combined_hash.hex()}")
-
-    # Sign the combined hash
-    data_to_sign = combined_hash # Use the single hash
+    data_to_sign = proof_hash + doc_hash
+    logger.debug(f"Data to sign (concatenated hashes) length: {len(data_to_sign)}")
 
     try:
         signature_bytes = private_key.sign(data_to_sign)
-        logger.debug(f"Raw signature length: {len(signature_bytes)}")
+        logger.debug(f"Raw signature length: {len(signature_bytes)}") 
     except Exception as e:
         logger.exception("Ed25519 signing operation failed.")
         raise VcError(f"Cryptographic signing failed: {e}")
@@ -166,8 +163,7 @@ def sign_credential_jsonld(
     proof_value = multibase.encode('base58btc', signature_bytes).decode('ascii')
     logger.debug(f"Encoded proofValue: {proof_value}")
 
-    # Prepare final signed credential
-    # Start fresh with original credential
+    # --- Final Credential Preparation ---
     signed_credential = credential.copy()
     # Ensure final contexts are present
     final_contexts = signed_credential.get('@context', [])
@@ -176,18 +172,17 @@ def sign_credential_jsonld(
     if SECURITY_CONTEXT_V2 not in final_contexts: final_contexts.append(SECURITY_CONTEXT_V2)
     signed_credential['@context'] = final_contexts
     # Add the complete proof block
-    final_proof = proof_config.copy()
+    final_proof = proof_config.copy() # Start with the original proof config
     final_proof["proofValue"] = proof_value
     signed_credential["proof"] = final_proof
 
-    logger.info("Successfully signed JSON-LD credential (using combined hash method).")
+    logger.info("Successfully signed JSON-LD credential (using targeted context normalization).")
     return signed_credential
 
 
 def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Verifies the Ed25519Signature2020 proof on a JSON-LD credential.
-    MODIFIED: Normalizes the whole document + proof (minus proofValue).
 
     Args:
         credential: The credential dictionary including the 'proof' block.
@@ -195,7 +190,7 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
     Returns:
         A tuple: (verified_status: bool, issuer_did: Optional[str], error_message: Optional[str])
     """
-    logger.info("Verifying JSON-LD credential proof (using combined hash method).")
+    logger.info("Verifying JSON-LD credential proof (using targeted context normalization).")
 
     if "proof" not in credential or not isinstance(credential["proof"], dict):
         return False, None, "Credential missing 'proof' block."
@@ -230,31 +225,31 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         return False, None, f"Failed to extract key or decode signature: {e}"
 
     try:
-        # Prepare the document for normalization
-        doc_to_normalize = credential.copy()
-        # Remove proofValue from the proof block within the copy
-        proof_copy = doc_to_normalize["proof"].copy()
-        del proof_copy["proofValue"]
-        doc_to_normalize["proof"] = proof_copy
+        credential_to_normalize = credential.copy()
+        proof_config_to_normalize = credential_to_normalize.pop("proof").copy()
+        del proof_config_to_normalize["proofValue"]
 
-        # Ensure necessary contexts are present
-        contexts = doc_to_normalize.get('@context', [])
-        if isinstance(contexts, str): contexts = [contexts]
-        if VC_JSONLD_CONTEXT_V1 not in contexts: contexts.append(VC_JSONLD_CONTEXT_V1)
-        if SECURITY_CONTEXT_V2 not in contexts: contexts.append(SECURITY_CONTEXT_V2)
-        doc_to_normalize['@context'] = contexts
+        # --- Hashing ---
+        logger.debug("Computing proof hash for verification")
+        # Normalize proof using ONLY the security context
+        proof_hash = _normalize_and_hash(proof_config_to_normalize, required_context=SECURITY_CONTEXT_V2)
+        logger.debug(f"Verification proof config hash: {proof_hash.hex()}")
 
-        logger.debug("Computing hash of combined document + proof (no proofValue) for verification")
-        # Normalize and hash the combined document
-        combined_hash = _normalize_and_hash(doc_to_normalize)
-        logger.debug(f"Verification combined hash: {combined_hash.hex()}")
+        logger.debug("Computing document hash for verification")
+        # Normalize credential body using its own declared contexts
+        cred_contexts = credential_to_normalize.get('@context', [])
+        if isinstance(cred_contexts, str): cred_contexts = [cred_contexts]
+        if VC_JSONLD_CONTEXT_V1 not in cred_contexts: cred_contexts.append(VC_JSONLD_CONTEXT_V1)
+        # Pass the original/intended contexts for the credential body
+        doc_hash = _normalize_and_hash(credential_to_normalize, required_context=cred_contexts)
+        logger.debug(f"Verification credential doc hash: {doc_hash.hex()}")
 
-        # Verify using the single hash
-        data_to_verify = combined_hash
-
+        data_to_verify = proof_hash + doc_hash
+        logger.debug(f"Data to verify (concatenated hashes) length: {len(data_to_verify)}")
+        
         try:
             public_key.verify(signature_bytes, data_to_verify)
-            logger.info("JSON-LD proof verification successful (using combined hash method).")
+            logger.info("JSON-LD proof verification successful (using targeted context normalization).")
             return True, controller_did, None
         except InvalidSignature:
             logger.warning("Signature verification failed: InvalidSignature exception.")
