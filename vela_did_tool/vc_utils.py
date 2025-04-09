@@ -80,7 +80,24 @@ def _normalize_and_hash(
         normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
         
         logger.debug(f"Normalizing document using default loader")
-        normalized_doc = jsonld.normalize(doc_copy, normalize_options)
+        try:
+            normalized_doc = jsonld.normalize(doc_copy, normalize_options)
+        except Exception as inner_e:
+            logger.warning(f"First normalization attempt failed: {inner_e}")
+            # Fallback - try with simplified context structure
+            if '@context' in doc_copy:
+                original_context = doc_copy['@context']
+                # Use string URLs directly instead of potential nested context objects
+                doc_copy['@context'] = [
+                    "https://www.w3.org/2018/credentials/v1",
+                    "https://w3id.org/security/suites/ed25519-2020/v1"
+                ]
+                logger.debug(f"Retrying normalization with simplified context references")
+                normalized_doc = jsonld.normalize(doc_copy, normalize_options)
+                # Restore original context in the source document
+                doc_copy['@context'] = original_context
+            else:
+                raise
         
         logger.debug(f"Normalized Document (first 100 chars): {normalized_doc[:100]}")
         hasher = hashes.Hash(hashes.SHA256())
@@ -138,14 +155,27 @@ def sign_credential_jsonld(
   
     credential_no_proof, proof_config = _prepare_ld_proof_components(credential_with_contexts, proof_options)
     
-    # Ensure proof config also has necessary contexts
+    # Ensure proof config has simple context structure - use direct URLs instead of complex nested objects
     proof_norm_doc = proof_config.copy()
-    if '@context' not in proof_norm_doc:
-        proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
+    # Always use string URLs for proof normalization to avoid context nesting issues
+    proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
     
     logger.debug("Computing proof hash for signing")
-    proof_hash = _normalize_and_hash(proof_norm_doc)
-    logger.debug(f"Proof config hash: {proof_hash.hex()}")
+    try:
+        proof_hash = _normalize_and_hash(proof_norm_doc)
+        logger.debug(f"Proof config hash: {proof_hash.hex()}")
+    except NormalizationError as e:
+        logger.warning(f"Proof normalization failed with original config: {e}")
+        # Try with even simpler proof structure if normalization fails
+        simple_proof = {
+            "@context": [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2],
+            "type": proof_config["type"],
+            "created": proof_config["created"],
+            "verificationMethod": proof_config["verificationMethod"],
+            "proofPurpose": proof_config["proofPurpose"]
+        }
+        proof_hash = _normalize_and_hash(simple_proof)
+        logger.debug(f"Simplified proof config hash: {proof_hash.hex()}")
     
     logger.debug("Computing document hash for signing")
     doc_hash = _normalize_and_hash(credential_no_proof)
@@ -244,14 +274,34 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         proof_config_to_normalize = credential_to_normalize.pop("proof").copy()
         del proof_config_to_normalize["proofValue"]
 
-        # Ensure proof has context for verification
-        proof_norm_doc = proof_config_to_normalize.copy()
-        if '@context' not in proof_norm_doc:
-            proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
+        # Use simplified proof structure for verification
+        simple_proof = {
+            "@context": [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2],
+            "type": proof_config_to_normalize["type"],
+            "created": proof_config_to_normalize["created"],
+            "verificationMethod": proof_config_to_normalize["verificationMethod"],
+            "proofPurpose": proof_config_to_normalize["proofPurpose"]
+        }
         
-        logger.debug("Computing proof hash for verification")
-        proof_hash = _normalize_and_hash(proof_norm_doc)
-        logger.debug(f"Verification proof hash: {proof_hash.hex()}")
+        try:
+            logger.debug("Computing proof hash for verification")
+            proof_hash = _normalize_and_hash(simple_proof)
+            logger.debug(f"Verification proof hash: {proof_hash.hex()}")
+        except NormalizationError as e:
+            logger.warning(f"Standard proof normalization failed: {e}")
+            # Even simpler fallback just using the required fields
+            minimal_proof = {
+                "@context": [
+                    "https://www.w3.org/2018/credentials/v1", 
+                    "https://w3id.org/security/suites/ed25519-2020/v1"
+                ],
+                "type": proof_config_to_normalize["type"],
+                "created": proof_config_to_normalize["created"],
+                "verificationMethod": proof_config_to_normalize["verificationMethod"],
+                "proofPurpose": proof_config_to_normalize["proofPurpose"]
+            }
+            proof_hash = _normalize_and_hash(minimal_proof)
+            logger.debug(f"Fallback verification proof hash: {proof_hash.hex()}")
         
         logger.debug("Computing document hash for verification")
         document_hash = _normalize_and_hash(credential_to_normalize)

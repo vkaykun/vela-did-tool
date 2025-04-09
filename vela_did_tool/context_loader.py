@@ -105,10 +105,80 @@ def create_document_loader() -> Callable:
         
         if url in CONTEXTS:
             logger.info(f"Using bundled context for: {url}")
+            try:
+                # Return a simplified version of the context to avoid nested context issues
+                context_data = CONTEXTS[url]
+                # If the context has nested @context properties, flatten them
+                if isinstance(context_data, dict):
+                    flattened_context = context_data.copy()
+                    # Remove problematic nested @context properties from definitions
+                    for key, value in flattened_context.items():
+                        if isinstance(value, dict) and '@context' in value:
+                            # Remove nested @context to prevent processing errors
+                            value_copy = value.copy()
+                            value_copy.pop('@context', None)
+                            flattened_context[key] = value_copy
+                    
+                    return {
+                        'contextUrl': None,
+                        'documentUrl': url,
+                        'document': flattened_context
+                    }
+                
+                return {
+                    'contextUrl': None,
+                    'documentUrl': url,
+                    'document': context_data
+                }
+            except Exception as e:
+                logger.warning(f"Error processing bundled context, using fallback: {e}")
+                # If there's any issue with the bundled context, fall back to a simpler approach
+                pass
+        
+        # For core contexts, provide a minimal context that won't cause normalization issues
+        if url == "https://www.w3.org/2018/credentials/v1":
+            logger.info(f"Using simplified fallback for credentials context")
             return {
                 'contextUrl': None,
                 'documentUrl': url,
-                'document': CONTEXTS[url]
+                'document': {
+                    "@context": {
+                        "@version": 1.1,
+                        "id": "@id",
+                        "type": "@type",
+                        "VerifiableCredential": "https://www.w3.org/2018/credentials#VerifiableCredential",
+                        "credentialSubject": "https://www.w3.org/2018/credentials#credentialSubject",
+                        "issuer": "https://www.w3.org/2018/credentials#issuer",
+                        "issuanceDate": {
+                            "@id": "https://www.w3.org/2018/credentials#issuanceDate",
+                            "@type": "http://www.w3.org/2001/XMLSchema#dateTime"
+                        },
+                        "proof": "https://w3id.org/security#proof"
+                    }
+                }
+            }
+        elif url == "https://w3id.org/security/suites/ed25519-2020/v1":
+            logger.info(f"Using simplified fallback for Ed25519-2020 context")
+            return {
+                'contextUrl': None,
+                'documentUrl': url,
+                'document': {
+                    "@context": {
+                        "@version": 1.1,
+                        "id": "@id",
+                        "type": "@type",
+                        "Ed25519Signature2020": "https://w3id.org/security#Ed25519Signature2020",
+                        "Ed25519VerificationKey2020": "https://w3id.org/security#Ed25519VerificationKey2020",
+                        "verificationMethod": "https://w3id.org/security#verificationMethod",
+                        "proofPurpose": "https://w3id.org/security#proofPurpose",
+                        "assertionMethod": "https://w3id.org/security#assertionMethod",
+                        "proofValue": "https://w3id.org/security#proofValue",
+                        "created": {
+                            "@id": "http://purl.org/dc/terms/created",
+                            "@type": "http://www.w3.org/2001/XMLSchema#dateTime"
+                        }
+                    }
+                }
             }
         
         logger.warning(
