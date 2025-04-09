@@ -5,7 +5,8 @@
 import json
 import logging
 import datetime
-from typing import Dict, Any, Optional, Tuple, Union
+import hashlib
+from typing import Dict, Any, Optional, Tuple, Union, List
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -64,7 +65,7 @@ def _normalize_and_hash(
     Args:
         doc: The JSON-LD document to normalize
         document_loader: Optional custom document loader. Defaults to the 
-                         offline-friendly loader that has common contexts bundled.
+                          offline-friendly loader that has common contexts bundled.
                          
     Returns:
         SHA-256 hash of the normalized document as bytes
@@ -75,7 +76,7 @@ def _normalize_and_hash(
     try:
         # Create a deep copy to avoid modifying the original document
         doc_copy = json.loads(json.dumps(doc))
-
+        
         # Directly use the input document with the default loader
         normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
         
@@ -90,6 +91,44 @@ def _normalize_and_hash(
         logger.exception(f"JSON-LD normalization failed for document: {doc}")
         # Include the specific error type for better debugging
         raise NormalizationError(f"Failed to normalize document: {type(e).__name__} - {e}")
+
+
+def _manually_hash_proof(proof_options: Dict[str, Any]) -> bytes:
+    """
+    Manually hashes the proof options to work around issues with PyLD's normalize function.
+    This is used ONLY for proof options which are causing normalization issues with nested contexts.
+    
+    Args:
+        proof_options: The proof options to hash
+        
+    Returns:
+        SHA-256 hash of the deterministically serialized proof options
+    """
+    logger.debug("Using manual proof hashing workaround")
+    
+    try:
+        # Create a deep copy and extract only essential properties
+        essential_fields = {
+            "type": proof_options.get("type", DEFAULT_PROOF_TYPE),
+            "created": proof_options.get("created"),
+            "proofPurpose": proof_options.get("proofPurpose", DEFAULT_PROOF_PURPOSE),
+            "verificationMethod": proof_options.get("verificationMethod")
+        }
+        
+        # Only include non-None values
+        filtered = {k: v for k, v in essential_fields.items() if v is not None}
+        
+        # Create a deterministic serialization by sorting keys
+        serialized = json.dumps(filtered, sort_keys=True, separators=(',', ':'))
+        logger.debug(f"Manually serialized proof: {serialized}")
+        
+        # Hash using the same algorithm as would be used with normalized data
+        hasher = hashes.Hash(hashes.SHA256())
+        hasher.update(serialized.encode('utf-8'))
+        return hasher.finalize()
+    except Exception as e:
+        logger.exception(f"Manual proof hashing failed: {e}")
+        raise NormalizationError(f"Failed to manually hash proof: {e}")
 
 
 def sign_credential_jsonld(
@@ -143,11 +182,19 @@ def sign_credential_jsonld(
     if '@context' not in proof_norm_doc:
         proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
     
-    logger.debug("Computing proof hash for signing")
-    proof_hash = _normalize_and_hash(proof_norm_doc)
-    logger.debug(f"Proof config hash: {proof_hash.hex()}")
+    # Use the manual workaround for proof hashing to avoid pyld.normalize issues
+    logger.debug("Computing proof hash using manual workaround")
+    try:
+        proof_hash = _manually_hash_proof(proof_norm_doc)
+        logger.debug(f"Proof config hash: {proof_hash.hex()}")
+    except Exception as e:
+        logger.warning(f"Manual proof hashing failed, falling back to standard method: {e}")
+        # Fall back to standard method if the manual method fails
+        proof_hash = _normalize_and_hash(proof_norm_doc)
+        logger.debug(f"Fallback proof config hash: {proof_hash.hex()}")
     
-    logger.debug("Computing document hash for signing")
+    # Use the standard PyLD normalization for the credential body
+    logger.debug("Computing document hash using standard normalization")
     doc_hash = _normalize_and_hash(credential_no_proof)
     logger.debug(f"Credential doc hash: {doc_hash.hex()}")
     
@@ -249,32 +296,44 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         if '@context' not in proof_norm_doc:
             proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
         
-        logger.debug("Computing proof hash for verification")
-        proof_hash = _normalize_and_hash(proof_norm_doc)
-        logger.debug(f"Verification proof config hash: {proof_hash.hex()}")
-
-        logger.debug("Computing document hash for verification")
-        doc_hash = _normalize_and_hash(credential_to_normalize)
-        logger.debug(f"Verification credential doc hash: {doc_hash.hex()}")
-
-        data_to_verify = proof_hash + doc_hash
+        # Use the manual workaround for proof hashing to avoid pyld.normalize issues
+        logger.debug("Computing proof hash using manual workaround for verification")
+        try:
+            proof_hash = _manually_hash_proof(proof_norm_doc)
+            logger.debug(f"Verification proof hash: {proof_hash.hex()}")
+        except Exception as e:
+            logger.warning(f"Manual proof hashing failed, falling back to standard method: {e}")
+            # Fall back to standard method if the manual method fails
+            proof_hash = _normalize_and_hash(proof_norm_doc)
+            logger.debug(f"Fallback verification proof hash: {proof_hash.hex()}")
+        
+        # Use the standard PyLD normalization for the credential body
+        logger.debug("Computing document hash using standard normalization for verification")
+        document_hash = _normalize_and_hash(credential_to_normalize)
+        logger.debug(f"Verification document hash: {document_hash.hex()}")
+        
+        data_to_verify = proof_hash + document_hash
         logger.debug(f"Data to verify (concatenated hashes) length: {len(data_to_verify)}")
 
+        # Verify signature
         public_key.verify(signature_bytes, data_to_verify)
-
-        logger.info("JSON-LD proof verification successful.")
-        issuer_did = controller_did
-        return True, issuer_did, None
+        logger.info("Signature verified successfully.")
+        
+        # Try to get issuer from credential directly for better DID resolution
+        issuer = credential.get("issuer")
+        if isinstance(issuer, dict) and "id" in issuer:
+            issuer = issuer["id"]
+        elif not isinstance(issuer, str):
+            issuer = controller_did  # Fall back to controller of verification method
+        
+        return True, issuer, None
 
     except InvalidSignature:
-        logger.warning("Signature verification failed: InvalidSignature exception.")
-        return False, None, "Invalid signature."
-    except NormalizationError as e:
-         logger.error(f"Verification failed due to normalization error: {e}")
-         return False, None, f"Normalization error during verification: {e}"
+        logger.error("Signature verification failed: Invalid signature")
+        return False, None, "Invalid signature"
     except Exception as e:
-        logger.exception("An unexpected error occurred during verification.")
-        return False, None, f"Verification failed: {e}"
+        logger.exception("Exception during signature verification")
+        return False, None, f"Verification error: {e}"
 
 def sign_credential_jwt(
     claims: Dict[str, Any],
