@@ -11,6 +11,7 @@ packages = [{include = "vela_did_tool"}]
 python = ">=3.10,<=3.13"
 
 cryptography = ">=42.0.0" 
+PyNaCl = ">=1.5.0"  # Required for Ed25519 signing operations
 jwcrypto = ">=1.5.0"   
 PyLD = {version = "==2.0.3", extras = ["requests"]}
 py-multibase = ">=1.0.0" 
