@@ -265,7 +265,9 @@ def run(*args, **kwargs) -> Dict[str, Any]:
         VcError: If execution fails or required inputs are missing.
     """
     logger.info(f"EXECUTING VELA-DID-TOOL")
-    logger.info(f"DETECTED PyLD VERSION: {pyld_version}")
+    logger.info(f"--------------------------------------------------------")
+    logger.info(f"--- DETECTED PyLD VERSION: {pyld_version} ---")
+    logger.info(f"--------------------------------------------------------")
     
     logger.debug(f"Received args: {args}")
     logger.debug(f"Received kwargs: {kwargs}")
