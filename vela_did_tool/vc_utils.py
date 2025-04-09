@@ -73,32 +73,13 @@ def _normalize_and_hash(
         NormalizationError: If normalization fails
     """
     try:
+        # Create a deep copy to avoid modifying the original document
         doc_copy = json.loads(json.dumps(doc))
-        
-        original_context = doc_copy.pop('@context', None)
-        
-        def remove_contexts(obj):
-            if isinstance(obj, dict):
-                if '@context' in obj:
-                    del obj['@context']
-                for key, value in list(obj.items()):
-                    remove_contexts(value)
-            elif isinstance(obj, list):
-                for item in obj:
-                    remove_contexts(item)
-    
-        remove_contexts(doc_copy)
-        
-        if "proofPurpose" in doc_copy or "verificationMethod" in doc_copy:
-            doc_copy['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
-            logger.debug("Applied proof-specific contexts for normalization")
-        else:
-            doc_copy['@context'] = VC_JSONLD_CONTEXT_V1
-            logger.debug("Applied credential context for normalization")
-        
+
+        # Directly use the input document with the default loader
         normalize_options = {**JSONLD_OPTIONS, 'documentLoader': document_loader}
         
-        logger.debug(f"Normalizing document with type-appropriate context")
+        logger.debug(f"Normalizing document using default loader")
         normalized_doc = jsonld.normalize(doc_copy, normalize_options)
         
         logger.debug(f"Normalized Document (first 100 chars): {normalized_doc[:100]}")
@@ -107,7 +88,8 @@ def _normalize_and_hash(
         return hasher.finalize()
     except Exception as e:
         logger.exception(f"JSON-LD normalization failed for document: {doc}")
-        raise NormalizationError(f"Failed to normalize document: {e}")
+        # Include the specific error type for better debugging
+        raise NormalizationError(f"Failed to normalize document: {type(e).__name__} - {e}")
 
 
 def sign_credential_jsonld(
@@ -142,10 +124,24 @@ def sign_credential_jsonld(
         private_key = ed25519.Ed25519PrivateKey.from_private_bytes(priv_key_bytes)
     except Exception as e:
         raise InvalidKeyFormatError(f"Failed to load private key from JWK: {e}")
-  
-    credential_no_proof, proof_config = _prepare_ld_proof_components(credential, proof_options)
     
+    # Ensure credential has the necessary contexts before processing
+    credential_with_contexts = credential.copy()
+    main_contexts = credential_with_contexts.get('@context', [])
+    if isinstance(main_contexts, str):
+        main_contexts = [main_contexts]
+    if VC_JSONLD_CONTEXT_V1 not in main_contexts:
+        main_contexts.append(VC_JSONLD_CONTEXT_V1)
+    if SECURITY_CONTEXT_V2 not in main_contexts:
+        main_contexts.append(SECURITY_CONTEXT_V2)
+    credential_with_contexts['@context'] = main_contexts
+  
+    credential_no_proof, proof_config = _prepare_ld_proof_components(credential_with_contexts, proof_options)
+    
+    # Ensure proof config also has necessary contexts
     proof_norm_doc = proof_config.copy()
+    if '@context' not in proof_norm_doc:
+        proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
     
     logger.debug("Computing proof hash for signing")
     proof_hash = _normalize_and_hash(proof_norm_doc)
@@ -232,11 +228,26 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         return False, None, f"Failed to extract key or decode signature: {e}"
 
     try:
-        credential_to_normalize = credential.copy()
+        # Ensure credential has proper contexts for verification
+        credential_to_verify = credential.copy()
+        contexts = credential_to_verify.get('@context', [])
+        if isinstance(contexts, str):
+            contexts = [contexts]
+        if VC_JSONLD_CONTEXT_V1 not in contexts:
+            contexts.append(VC_JSONLD_CONTEXT_V1)
+        if SECURITY_CONTEXT_V2 not in contexts:
+            contexts.append(SECURITY_CONTEXT_V2)
+        credential_to_verify['@context'] = contexts
+        
+        # Extract proof for separate verification
+        credential_to_normalize = credential_to_verify.copy()
         proof_config_to_normalize = credential_to_normalize.pop("proof").copy()
         del proof_config_to_normalize["proofValue"]
 
+        # Ensure proof has context for verification
         proof_norm_doc = proof_config_to_normalize.copy()
+        if '@context' not in proof_norm_doc:
+            proof_norm_doc['@context'] = [VC_JSONLD_CONTEXT_V1, SECURITY_CONTEXT_V2]
         
         logger.debug("Computing proof hash for verification")
         proof_hash = _normalize_and_hash(proof_norm_doc)
@@ -260,7 +271,7 @@ def verify_credential_jsonld(credential: Dict[str, Any]) -> Tuple[bool, Optional
         return False, None, "Invalid signature."
     except NormalizationError as e:
          logger.error(f"Verification failed due to normalization error: {e}")
-         return False, None, f"Normalization error during verification: {e.message}"
+         return False, None, f"Normalization error during verification: {e}"
     except Exception as e:
         logger.exception("An unexpected error occurred during verification.")
         return False, None, f"Verification failed: {e}"
