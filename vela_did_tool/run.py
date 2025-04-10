@@ -193,25 +193,30 @@ def sign_credential(
 
 
 def verify_credential(
-    format: str, 
+    format: str,
     credential_input: Union[str, Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """Verify a signed credential in either JSON-LD or JWT format."""
+    """Verifies a credential in the specified format.
+    
+    Args:
+        format: Either 'jsonld' or 'jwt'
+        credential_input: Can be a file path (string) containing the credential,
+                          or a credential object (dict) for JSON-LD.
+                          
+    Returns:
+        A verification result including verified status, issuer, and any errors.
+    """
     try:
         if isinstance(credential_input, str):
             if format == 'jsonld':
                 credential_data = load_json_file(credential_input)
             elif format == 'jwt':
-                try:
-                    with open(credential_input, 'r') as f:
-                        credential_data = f.read().strip()
-                except Exception as e:
-                    raise VcError(f"Failed to read JWT from {credential_input}: {e}")
+                credential_data = credential_input.strip()
             else:
                 raise VcError(f"Unsupported format for file input: {format}")
         elif isinstance(credential_input, dict):
             if format != 'jsonld':
-                raise VcError(f"Received credential object (dict) but format is '{format}'. Expected JSON-LD.")
+                raise VcError(f"Received credential object but format is '{format}'. Expected JSON-LD.")
             credential_data = credential_input
         else:
             raise VcError("Invalid 'credential' input type. Expected file path (str) or object (dict).")
