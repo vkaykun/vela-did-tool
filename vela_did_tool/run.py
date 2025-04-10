@@ -207,21 +207,49 @@ def verify_credential(
         A verification result including verified status, issuer, and any errors.
     """
     try:
-        if isinstance(credential_input, str):
+        # First, detect if this is a JWT string directly
+        if format == 'jwt' and isinstance(credential_input, str) and credential_input.count('.') == 2 and credential_input.startswith('eyJ'):
+            logger.debug("Detected JWT format string directly in input, using as-is")
+            credential_data = credential_input.strip()
+        # Otherwise, process as before
+        elif isinstance(credential_input, str):
             if format == 'jsonld':
-                credential_data = load_json_file(credential_input)
+                # Check if this is actually a JSON string or a file path
+                if credential_input.lstrip().startswith('{'):
+                    try:
+                        # Try to parse as direct JSON string
+                        credential_data = json.loads(credential_input)
+                        logger.debug("Parsed credential_input as direct JSON string")
+                    except json.JSONDecodeError:
+                        # Not valid JSON, treat as file path
+                        logger.debug("Treating credential_input as file path")
+                        credential_data = load_json_file(credential_input)
+                else:
+                    # Not starting with '{', assume file path
+                    logger.debug("Treating credential_input as file path")
+                    credential_data = load_json_file(credential_input)
             elif format == 'jwt':
+                # For JWT, just use the string as-is (already handled by direct JWT check above)
+                # This is a fallback for other JWT strings that don't match the eyJ pattern
+                logger.debug("Processing JWT input string")
                 credential_data = credential_input.strip()
             else:
                 raise VcError(f"Unsupported format for file input: {format}")
         elif isinstance(credential_input, dict):
             if format != 'jsonld':
-                raise VcError(f"Received credential object but format is '{format}'. Expected JSON-LD.")
-            credential_data = credential_input
+                # If format is JWT but input is dict, check if there's a jwt field
+                if format == 'jwt' and 'jwt' in credential_input:
+                    logger.debug("Extracting JWT from credential_input dictionary")
+                    credential_data = credential_input['jwt'].strip()
+                else:
+                    raise VcError(f"Received credential object but format is '{format}'. Expected JSON-LD.")
+            else:
+                credential_data = credential_input
         else:
             raise VcError("Invalid 'credential' input type. Expected file path (str) or object (dict).")
             
         if format == 'jsonld':
+            logger.debug("Verifying JSON-LD credential")
             verified, issuer_did, error_msg = verify_credential_jsonld(credential_data)
             
             result = {
@@ -232,6 +260,7 @@ def verify_credential(
                 result["error"] = error_msg
                 
         elif format == 'jwt':
+            logger.debug(f"Verifying JWT credential: {credential_data[:30]}...")
             verified, issuer_did, payload, error_msg = verify_credential_jwt(credential_data)
             
             result = {

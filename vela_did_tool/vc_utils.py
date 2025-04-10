@@ -5,6 +5,7 @@
 import json
 import logging
 import datetime
+import os  # Add os import if not already present
 from typing import Dict, Any, Optional, Tuple, Union, List
 
 from cryptography.hazmat.primitives import hashes
@@ -390,18 +391,24 @@ def verify_credential_jwt(jwt_string: str) -> Tuple[bool, Optional[str], Optiona
         parts = jwt_string.split('.')
         if len(parts) != 3:
             return False, None, None, "Invalid JWT format: must have three parts"
-        
+
         import base64
         def decode_b64url(data):
             padded = data + '=' * (4 - len(data) % 4) if len(data) % 4 else data
-            return base64.urlsafe_b64decode(padded.encode('utf-8')).decode('utf-8')
-        
+            # Use try-except for decoding robustness
+            try:
+                return base64.urlsafe_b64decode(padded.encode('utf-8')).decode('utf-8')
+            except (TypeError, ValueError, base64.binascii.Error) as decode_err:
+                logger.error(f"Base64 decoding failed for part: {data[:20]}... Error: {decode_err}")
+                raise ValueError(f"Invalid base64 encoding in JWT part: {decode_err}") from decode_err
+
         try:
             header = json.loads(decode_b64url(parts[0]))
             payload = json.loads(decode_b64url(parts[1]))
-        except Exception as e:
-            return False, None, None, f"Invalid JWT format: {e}"
-            
+        except (ValueError, json.JSONDecodeError) as format_err:
+            logger.error(f"Failed to decode/parse JWT header or payload: {format_err}")
+            return False, None, None, f"Invalid JWT format: {format_err}"
+
         if header.get("alg") != "EdDSA":
             return False, None, None, f"Unsupported JWT algorithm: {header.get('alg')}. Expected EdDSA."
         if "iss" not in payload or not isinstance(payload["iss"], str):
@@ -412,38 +419,72 @@ def verify_credential_jwt(jwt_string: str) -> Tuple[bool, Optional[str], Optiona
 
         try:
             public_key_bytes = get_public_key_bytes_from_did(issuer_did)
-            
+
             from base64 import urlsafe_b64encode
             x_b64 = urlsafe_b64encode(public_key_bytes).decode('ascii').rstrip('=')
             pub_jwk = jwk.JWK(kty='OKP', crv='Ed25519', x=x_b64)
-    
+
             jws_token = jws.JWS()
-            
+
+            # --- Enhanced Error Handling Around jwcrypto ---
             try:
+                logger.debug("Attempting JWS deserialization...")
                 jws_token.deserialize(jwt_string)
-                
+                logger.debug("JWS deserialization successful.")
+            except OSError as ose:
+                # Catch the specific OS error we suspect
+                logger.error(f"OSError during JWS deserialization: {ose}")
+                return False, None, None, f"JWT Deserialization OS Error: {ose}"
+            except Exception as deser_err:
+                 logger.error(f"Error during JWS deserialization: {deser_err}")
+                 return False, None, None, f"Invalid JWT format or deserialization error: {deser_err}"
+
+            try:
+                logger.debug("Attempting JWS verification...")
                 jws_token.verify(pub_jwk)
-                
+                logger.debug("JWS verification successful.")
+
                 raw_payload = jws_token.payload
                 if not raw_payload:
+                    logger.error("Invalid JWT: empty payload after verification")
                     return False, None, None, "Invalid JWT: empty payload after verification"
-                    
+
                 logger.info("JWT signature verification successful.")
-                return True, issuer_did, payload, None
+                # Ensure payload is returned correctly after successful verification
+                try:
+                    verified_payload = json.loads(raw_payload.decode('utf-8'))
+                except (json.JSONDecodeError, UnicodeDecodeError) as payload_decode_err:
+                     logger.error(f"Failed to decode verified payload: {payload_decode_err}")
+                     return False, None, None, f"Failed to decode verified payload: {payload_decode_err}"
+
+                return True, issuer_did, verified_payload, None # Return the decoded payload
+
+            except OSError as ose:
+                # Catch the specific OS error we suspect
+                logger.error(f"OSError during JWS verification: {ose}")
+                return False, None, None, f"JWT Verification OS Error: {ose}"
             except jws.InvalidJWSSignature:
                 logger.warning("JWT signature verification failed: InvalidSignature exception.")
                 return False, None, None, "Invalid JWT signature: signature verification failed"
-            
+            except Exception as verify_err:
+                 logger.error(f"Error during JWS verification: {verify_err}")
+                 return False, None, None, f"JWT Verification Error: {verify_err}"
+            # --- End Enhanced Error Handling ---
+
         except DidError as e:
             logger.error(f"Failed to extract public key from JWT issuer DID: {e}")
             return False, None, None, f"Could not resolve public key for issuer DID: {e.message}"
+        except Exception as key_err:
+             logger.error(f"Unexpected error during public key preparation: {key_err}")
+             return False, None, None, f"Error preparing public key: {key_err}"
 
+    # --- Keep outer exception handlers for broader issues ---
     except jws.InvalidJWSSignature as e:
-        logger.warning(f"JWT signature verification failed: {e}")
+        logger.warning(f"JWT signature verification failed (outer catch): {e}")
         return False, None, None, "Invalid JWT signature."
     except (jws.InvalidJWSObject, json.JSONDecodeError) as e:
-         logger.error(f"Invalid JWT format: {e}")
+         logger.error(f"Invalid JWT format (outer catch): {e}")
          return False, None, None, f"Invalid JWT format: {e}"
     except Exception as e:
-        logger.exception("An unexpected error occurred during JWT verification.")
+        logger.exception("An unexpected error occurred during JWT verification (outer catch).")
         return False, None, None, f"JWT verification failed: {e}"
